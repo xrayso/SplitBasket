@@ -1,0 +1,81 @@
+### IntelliJ IDEA ###
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+# Flutter/Dart/Pub related
+.dart_tool/
+.packages
+.pub/
+build/
+
+# iOS related
+ios/Flutter/
+ios/Pods/
+ios/Runner.xcworkspace/
+ios/Runner.xcworkspace
+ios/Podfile.lock
+ios/Pods
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+
+# Android related
+.android/
+app/*.iml
+android/*.iml
+android/.gradle/
+android/app/app.iml
+android/app/build/
+android/gradle/
+android/gradlew
+android/gradlew.bat
+android/local.properties
+android/.idea/
+android/*/local.properties
+
+# Web related
+web/.dart_tool/
+web/build/
+
+# Visual Studio Code
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Mac related
+
+# Generated files
+*.log
+pubspec.lock
+
+# Firebase configuration (if public repo)
+ios/Runner/GoogleService-Info.plist
+android/app/google-services.json
