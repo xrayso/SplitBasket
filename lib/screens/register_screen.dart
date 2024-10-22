@@ -36,25 +36,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _errorMessage = null;
       });
 
-      try {
 
-        await _authService.register(_email, _password, _userName);
+        final String authenticatedMessage = await _authService.register(_email, _password, _userName);
         // Navigate to HomeScreen after successful registration
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => MainScreen()),
-        );
-      } catch (e) {
-        setState(() {
-          _errorMessage = 'Registration failed. ${e.toString()}';
-        });
-      } finally {
-        setState(() {
-          _isLoading = false;
-        });
+        if (authenticatedMessage == "Success") {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (context) => MainScreen()),
+                (route) => false,
+          );
+        }else{
+          setState(() {
+            _errorMessage = authenticatedMessage;
+          });
+        }
       }
+      setState(() {
+        _isLoading = false;
+      });
     }
-  }
+
 
   @override
   Widget build(BuildContext context) {

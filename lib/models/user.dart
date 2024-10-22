@@ -2,6 +2,7 @@ class User{
 
   final String id;
   final String userName;
+  final String friendCode;
   final String email;
   final List<String> friendIds;
   final List<String> incomingFriendRequests;
@@ -10,6 +11,7 @@ class User{
   User({
     required this.id,
     required this.userName,
+    required this.friendCode,
     required this.email,
     this.friendIds = const [],
     this.incomingFriendRequests = const [],
@@ -20,6 +22,7 @@ class User{
     return {
       'id': id,
       'userName': userName,
+      'friendCode': friendCode,
       'email': email,
       'friendIds': friendIds,
       'incomingFriendRequests': incomingFriendRequests,
@@ -31,6 +34,7 @@ class User{
     return User(
       id: map['id'] ?? '',
       userName: map['userName'] ?? '',
+      friendCode: map['friendCode'] ?? '',
       email: map['email'] ?? '',
       friendIds: List<String>.from(map['friendIds'] ?? []),
       incomingFriendRequests: List<String>.from(map['incomingFriendRequests'] ?? []),

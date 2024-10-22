@@ -26,7 +26,6 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final currentUserId = _authService.currentUser!.uid;
-
     return Scaffold(
       body: _screens[_currentIndex],
       bottomNavigationBar: StreamBuilder<int>(

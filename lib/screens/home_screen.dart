@@ -8,6 +8,7 @@ import 'basket_screen.dart';
 import 'create_basket_screen.dart';
 import 'pending_invitations_screen.dart';
 import 'join_basket_screen.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -30,6 +31,14 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: Icon(Icons.logout),
             onPressed: _logout
+          ),
+          IconButton(
+            icon: Icon(Icons.person),
+            onPressed: (){
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => ProfileScreen()),
+              );
+            }
           ),
         ],
       ),
@@ -207,6 +216,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _logout() async {
     await _authService.signOut();
-    Navigator.pushReplacementNamed(context, '/login');
+    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
   }
 }

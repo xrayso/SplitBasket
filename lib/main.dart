@@ -33,6 +33,7 @@ class SplitBasketApp extends StatelessWidget {
     );
 
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'SplitBasket',
       theme: ThemeData(
         colorScheme: colorScheme,

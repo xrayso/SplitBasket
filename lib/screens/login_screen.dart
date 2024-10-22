@@ -21,18 +21,17 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
       setState(() { _isLoading = true; });
-      try {
-        await _authService.signIn(_email, _password);
 
+      final String loginSuccessMessage = await _authService.signIn(_email, _password);
+      if (loginSuccessMessage == "Success"){
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => MainScreen()),
         );
-      } catch (e) {
-        setState(() { _errorMessage = e.toString(); });
-      } finally {
-        setState(() { _isLoading = false; });
+      } else {
+        setState(() { _errorMessage = loginSuccessMessage; });
       }
+      setState(() { _isLoading = false; });
     }
   }
 
