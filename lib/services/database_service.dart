@@ -97,6 +97,7 @@ class DatabaseService {
       if (doc.exists) {
         return User.fromMap(doc.data() as Map<String, dynamic>);
       } else {
+        print("HELLO");
         throw Exception('User not found');
       }
     } catch (e) {

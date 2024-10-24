@@ -55,6 +55,7 @@ class AuthService {
         id: firebaseUser.uid,
         email: email,
         userName: userName,
+        lowerCaseUserName: userName.toLowerCase(),
         friendCode: friendCode,
       );
 

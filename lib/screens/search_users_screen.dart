@@ -15,22 +15,72 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
 
-  void _searchUsers() async {
-    if (_searchQuery.length < 5) return;
-    String userName = _searchQuery.substring(0, _searchQuery.length - 5);
-    String friendCode = _searchQuery.substring(_searchQuery.length - 4, _searchQuery.length);
-    final String currentUserName = await _dbService.getUserNameById(_authService.currentUser!.uid);
+  String _currentUserId = '';
+  List<String> _friendIds = [];
+  List<String> _outgoingFriendRequests = [];
+  List<String> _incomingFriendRequests = [];
 
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentUserData();
+  }
+
+  // Fetch current user's data including friend lists and friend requests
+  void _getCurrentUserData() async {
+    final currentUserId = _authService.currentUser!.uid;
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUserId)
+        .get();
+
+    if (userDoc.exists) {
+      final data = userDoc.data()!;
+      setState(() {
+        _currentUserId = currentUserId;
+        _friendIds = List<String>.from(data['friendIds'] ?? []);
+        _outgoingFriendRequests = List<String>.from(data['outgoingFriendRequests'] ?? []);
+        _incomingFriendRequests = List<String>.from(data['incomingFriendRequests'] ?? []);
+      });
+    }
+  }
+
+  void _searchUsers() async {
+    if (!_searchQuery.contains('#')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please enter a valid friend tag (e.g., username#1234)')),
+      );
+      return;
+    }
+
+    final parts = _searchQuery.split('#');
+    if (parts.length != 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invalid friend tag format.')),
+      );
+      return;
+    }
+
+    String userName = parts[0].trim().toLowerCase();
+    String friendCode = parts[1].trim();
+    if (friendCode.length != 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Friend code must be 4 digits.')),
+      );
+      return;
+    }
+
+    // Fetch users matching the search query
     QuerySnapshot snapshot = await FirebaseFirestore.instance
         .collection('users')
-        .where('userName', isEqualTo: userName)
-        .where('userName', isNotEqualTo: currentUserName)
+        .where('lowerCaseUserName', isEqualTo: userName)
         .where('friendCode', isEqualTo: friendCode)
         .get();
 
     List<User> users = snapshot.docs.map((doc) {
-      return User.fromMap(doc.data() as Map<String, dynamic>);
-    }).toList();
+      final user = User.fromMap(doc.data() as Map<String, dynamic>);
+      return user;
+    }).where((user) => user.id != _currentUserId).toList(); // Exclude current user
 
     setState(() {
       _searchResults = users;
@@ -38,16 +88,21 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
   }
 
   void _sendFriendRequest(String receiverId) async {
-    await _dbService.sendFriendRequest(_authService.currentUser!.uid, receiverId);
+    await _dbService.sendFriendRequest(_currentUserId, receiverId);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Friend request sent')),
     );
+
+    // Update the local state to reflect the sent request
+    setState(() {
+      _outgoingFriendRequests.add(receiverId);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Add Friends')),
+      appBar: AppBar(title: const Text('Add Friends')),
       body: Column(
         children: [
           Padding(
@@ -56,7 +111,7 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
               children: [
                 Expanded(
                   child: TextField(
-                    decoration: InputDecoration(labelText: 'Friend Tag'),
+                    decoration: const InputDecoration(labelText: 'Friend Tag (e.g., username#1234)'),
                     onChanged: (value) {
                       setState(() {
                         _searchQuery = value;
@@ -65,7 +120,7 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
                   ),
                 ),
                 IconButton(
-                  icon: Icon(Icons.search),
+                  icon: const Icon(Icons.search),
                   onPressed: _searchUsers,
                 ),
               ],
@@ -75,27 +130,43 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
             child: _searchQuery.isEmpty
                 ? Center(
               child: Text(
-                'Enter a friend tag to search.\nYou can find your own username tag in your profile.',
+                'Enter a friend tag to search.\nYou can find your own friend tag in your profile.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16),
+                style: const TextStyle(fontSize: 16),
               ),
             )
                 : _searchResults.isEmpty
                 ? Center(
               child: Text(
                 'No users found. Try another search.',
-                style: TextStyle(fontSize: 16),
+                style: const TextStyle(fontSize: 16),
               ),
             )
                 : ListView(
               children: _searchResults.map((user) {
+                Widget trailingWidget;
+
+                if (user.id == _currentUserId) {
+                  // Prevent adding yourself
+                  trailingWidget = const Text('This is You');
+                } else if (_friendIds.contains(user.id)) {
+                  // Already friends
+                  trailingWidget = const Text('Already Added');
+                } else if (_outgoingFriendRequests.contains(user.id)) {
+                  // Friend request already sent
+                  trailingWidget = const Text('Request Sent');
+                } else {
+                  // Show Add Friend button
+                  trailingWidget = ElevatedButton(
+                    onPressed: () => _sendFriendRequest(user.id),
+                    child: const Text('Add Friend'),
+                  );
+                }
+
                 return ListTile(
                   title: Text(user.userName),
-                  subtitle: Text(user.email),
-                  trailing: ElevatedButton(
-                    onPressed: () => _sendFriendRequest(user.id),
-                    child: Text('Add Friend'),
-                  ),
+                  subtitle: Text('${user.userName}#${user.friendCode}'),
+                  trailing: trailingWidget,
                 );
               }).toList(),
             ),
