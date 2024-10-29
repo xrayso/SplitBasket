@@ -188,6 +188,16 @@ class DatabaseService {
     });
   }
 
+  Stream<int> getFriendRequestCount(String userId) {
+    return _db.collection('users').doc(userId).snapshots().map((snapshot) {
+      if (snapshot.exists && snapshot.data() != null) {
+        List<dynamic> incomingRequests = snapshot.data()!['incomingFriendRequests'] ?? [];
+        return incomingRequests.length;
+      }
+      return 0;
+    });
+  }
+
   Future<void> inviteFriendsToBasket(String basketId, List<String> friendIds) async{
     await _db.collection('baskets').doc(basketId).update({
       'invitedUserIds': FieldValue.arrayUnion(friendIds),
@@ -302,7 +312,32 @@ class DatabaseService {
       }).toList();
     });
   }
+  Future<void> toggleOptIn(GroceryItem item, String basketId, String currentUserId) async {
+    // Get the basket document
+    DocumentSnapshot basketSnapshot = await _db.collection('baskets').doc(basketId).get();
+    if (!basketSnapshot.exists) return;
 
+    // Get the current list of items in the basket
+    List<dynamic> items = basketSnapshot.get('items') ?? [];
+
+    // Find the index of the item to modify
+    int index = items.indexWhere((i) => i['id'] == item.id);
+    if (index == -1) return; // Item not found
+
+    // Modify the optedInUserIds array for the specific item
+    List<dynamic> optedInUserIds = items[index]['optedInUserIds'] ?? [];
+    if (optedInUserIds.contains(currentUserId)) {
+      optedInUserIds.remove(currentUserId);
+    } else {
+      optedInUserIds.add(currentUserId);
+    }
+
+    // Update the item in the items array
+    items[index]['optedInUserIds'] = optedInUserIds;
+
+    // Update the basket document with the modified items array
+    await _db.collection('baskets').doc(basketId).update({'items': items});
+  }
 
   Stream<List<Basket>> getInvitedBaskets(String userId){
     return _db
@@ -392,6 +427,7 @@ class DatabaseService {
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
   }
+
   Stream<List<Charge>> getPendingResolutionRequests(String userId) {
     return _db
         .collection('charges')

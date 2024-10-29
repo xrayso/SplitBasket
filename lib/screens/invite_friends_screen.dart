@@ -69,10 +69,19 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
                 }).toList(),
               ),
             ),
-            ElevatedButton(
-              onPressed: _inviteFriends,
-              child: Text('Send Invitations'),
+            SizedBox(height: 20), // Adds space above the button
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20.0),
+              child: ElevatedButton(
+                onPressed: _inviteFriends,
+                child: Text('Send Invitations'),
+                style: ElevatedButton.styleFrom(
+                  padding: EdgeInsets.symmetric(vertical: 15.0),
+                  minimumSize: Size(double.infinity, 50), // Makes the button full-width
+                ),
+              ),
             ),
+            SizedBox(height: 20), // Adds space below the button
           ],
         ));
   }

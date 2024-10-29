@@ -41,43 +41,35 @@ class FriendRequestsScreen extends StatelessWidget {
                   }
 
                   User sender = userSnapshot.data!;
-                  return Dismissible(
-                    key: Key(sender.id),
-                    background: Container(
-                      color: Colors.green,
-                      alignment: Alignment.centerLeft,
-                      padding: EdgeInsets.symmetric(horizontal: 20.0),
-                      child: Icon(Icons.check, color: Colors.white),
-                    ),
-                    secondaryBackground: Container(
-                      color: Colors.red,
-                      alignment: Alignment.centerRight,
-                      padding: EdgeInsets.symmetric(horizontal: 20.0),
-                      child: Icon(Icons.close, color: Colors.white),
-                    ),
-                    confirmDismiss: (direction) async {
-                      if (direction == DismissDirection.startToEnd) {
-                        await _dbService.acceptFriendRequest(
-                            currentUserId, sender.id);
-                        return true;
-                      } else if (direction ==
-                          DismissDirection.endToStart) {
-                        await _dbService.declineFriendRequest(
-                            currentUserId, sender.id);
-                        return true;
-                      }
-                      return false;
-                    },
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Theme.of(context).colorScheme.secondary,
-                        child: Text(
-                          sender.userName.substring(0, 1).toUpperCase(),
-                          style: TextStyle(color: Colors.white),
-                        ),
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Theme.of(context).colorScheme.secondary,
+                      child: Text(
+                        sender.userName.substring(0, 1).toUpperCase(),
+                        style: TextStyle(color: Colors.white),
                       ),
-                      title: Text(sender.userName),
-                      subtitle: Text('Sent you a friend request'),
+                    ),
+                    title: Text(sender.userName),
+                    subtitle: Text('Sent you a friend request'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(
+                          onPressed: () async {
+                            await _dbService.acceptFriendRequest(
+                                currentUserId, sender.id);
+                          },
+                          child: Text('Accept'),
+                        ),
+                        SizedBox(width: 8),
+                        TextButton(
+                          onPressed: () async {
+                            await _dbService.declineFriendRequest(
+                                currentUserId, sender.id);
+                          },
+                          child: Text('Decline'),
+                        ),
+                      ],
                     ),
                   );
                 },
@@ -87,14 +79,5 @@ class FriendRequestsScreen extends StatelessWidget {
         },
       ),
     );
-  }
-
-  void _acceptFriendRequest(String currentUserId, String senderId) async {
-    await _dbService.acceptFriendRequest(currentUserId, senderId);
-  }
-
-  void _declineFriendRequest(
-      String currentUserId, String senderId) async {
-    await _dbService.declineFriendRequest(currentUserId, senderId);
   }
 }

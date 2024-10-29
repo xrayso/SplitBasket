@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class GroceryItem {
   final String id;
   final String name;
@@ -40,5 +42,16 @@ class GroceryItem {
           : [],
     );
   }
+  factory GroceryItem.fromDocument(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
 
+    return GroceryItem(
+      id: doc.id,
+      name: data['name'] ?? '',
+      price: (data['price'] ?? 0).toDouble(),
+      quantity: (data['quantity'] ?? 0).toDouble(),
+      optedInUserIds: List<String>.from(data['optedInUserIds'] ?? []),
+      addedBy: data['addedByUserId'] ?? '',
+    );
+  }
 }

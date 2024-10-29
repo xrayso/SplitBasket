@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'grocery_item.dart';
 
 class Basket {
@@ -5,7 +7,7 @@ class Basket {
   final String name;
   final String hostId;
   final List<String> memberIds;
-  final List<GroceryItem> items;
+  List<GroceryItem> items;
   final Map<String, double>? charges;
   final String invitationCode;
   final List<String> invitedUserIds;
@@ -29,7 +31,6 @@ class Basket {
       'hostId': hostId,
       'memberIds': memberIds,
       // Store items as a list of maps
-      'items': items.map((item) => item.toMap()).toList(),
       if (charges != null) 'charges': charges,
       'invitationCode': invitationCode,
       'invitedUserIds': invitedUserIds,
@@ -38,6 +39,7 @@ class Basket {
 
   // Create Basket from Map
   factory Basket.fromMap(Map<String, dynamic> map) {
+
     return Basket(
       id: map['id'] ?? '',
       name: map['name'] ?? '',
@@ -55,8 +57,24 @@ class Basket {
           : null,
       invitationCode: map['invitationCode'] ?? '',
       invitedUserIds: map['invitedUserIds'] != null ?
-      List<String>.from(map['invitedUserIds']):
-      [],
+      List<String>.from(map['invitedUserIds']): [],
+    );
+  }
+  factory Basket.fromDocument(DocumentSnapshot doc, items) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+    return Basket(
+      id: doc.id,
+      items: items,
+      name: data['name'] ?? '',
+      hostId: data['hostId'] ?? '',
+      charges: data['charges'] != null
+          ? Map<String, double>.from(data['charges'])
+          : null,
+      memberIds: List<String>.from(data['memberIds'] ?? []),
+      invitationCode: data['invitationCode'] ?? '',
+      invitedUserIds: data['invitedUserIds'] != null ?
+      List<String>.from(data['invitedUserIds']): [],
     );
   }
 }

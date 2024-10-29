@@ -45,6 +45,16 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
   }
 
   @override
+  void didUpdateWidget(covariant GroceryItemTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.item.optedInUserIds != oldWidget.item.optedInUserIds) {
+      setState(() {
+        _optedInUsernamesFuture = _fetchOptedInUsernames();
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Card(
       elevation: 2.0,
