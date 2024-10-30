@@ -62,7 +62,6 @@ class _BasketScreenState extends State<BasketScreen> {
           );
         }
         Basket basket = snapshot.data!;
-        print(basket.items[0].optedInUserIds.toString() + "<------- " + currentUserId);
         // List of pages for the bottom navigation
         final List<Widget> _pages = [
           // Left Tab: Basket Members Screen
