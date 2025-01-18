@@ -7,6 +7,7 @@ class Basket {
   final String name;
   final String hostId;
   final List<String> memberIds;
+  final List<String> memberTokens;
   List<GroceryItem> items;
   final Map<String, double>? charges;
   final String invitationCode;
@@ -17,6 +18,7 @@ class Basket {
     required this.name,
     required this.hostId,
     required this.memberIds,
+    required this.memberTokens,
     this.items = const [],
     this.charges,
     required this.invitationCode,
@@ -30,6 +32,7 @@ class Basket {
       'name': name,
       'hostId': hostId,
       'memberIds': memberIds,
+      'memberTokens': memberTokens,
       // Store items as a list of maps
       if (charges != null) 'charges': charges,
       'invitationCode': invitationCode,
@@ -46,6 +49,9 @@ class Basket {
       hostId: map['hostId'] ?? '',
       memberIds: map['memberIds'] != null
           ? List<String>.from(map['memberIds'])
+          : [],
+      memberTokens: map['memberTokens'] != null
+          ? List<String>.from(map['memberTokens'])
           : [],
       items: map['items'] != null
           ? List<Map<String, dynamic>>.from(map['items'])
@@ -72,6 +78,7 @@ class Basket {
           ? Map<String, double>.from(data['charges'])
           : null,
       memberIds: List<String>.from(data['memberIds'] ?? []),
+      memberTokens: List<String>.from(data['memberTokens'] ?? []),
       invitationCode: data['invitationCode'] ?? '',
       invitedUserIds: data['invitedUserIds'] != null ?
       List<String>.from(data['invitedUserIds']): [],

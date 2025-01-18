@@ -7,7 +7,7 @@ import '../services/database_service.dart';
 class AddItemScreen extends StatefulWidget {
   final String basketId;
 
-  AddItemScreen({required this.basketId});
+  const AddItemScreen({super.key, required this.basketId});
 
   @override
   _AddItemScreenState createState() => _AddItemScreenState();
@@ -106,7 +106,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
         price: _itemPrice,
         quantity: _itemQuantity,
         addedBy: _addedBy,
-        optedInUserIds: [],
+        userShares: {},
       );
       await DatabaseService().addItemToBasket(widget.basketId, newItem);
       Navigator.pop(context);

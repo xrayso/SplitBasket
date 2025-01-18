@@ -6,7 +6,7 @@ class GroceryItem {
   final double price;
   final int quantity;
   final String addedBy;
-  final List<String> optedInUserIds;
+  final Map<String, dynamic> userShares;
 
   GroceryItem({
     required this.id,
@@ -14,8 +14,8 @@ class GroceryItem {
     required this.price,
     required this.quantity,
     required this.addedBy,
-    List<String>? optedInUserIds,
-  }) : optedInUserIds = optedInUserIds ?? [];
+    required this.userShares,
+  });
 
   // Convert a GroceryItem into a Map for Firestore
   Map<String, dynamic> toMap() {
@@ -25,7 +25,7 @@ class GroceryItem {
       'price': price,
       'quantity': quantity,
       'addedBy': addedBy,
-      'optedInUserIds': optedInUserIds,
+      'userShares': userShares,
     };
   }
 
@@ -37,21 +37,13 @@ class GroceryItem {
       price: map['price'] != null ? (map['price'] as num).toDouble() : 0.0,
       quantity: map['quantity'] ?? 0,
       addedBy: map['addedBy'] ?? '',
-      optedInUserIds: map['optedInUserIds'] != null
-          ? List<String>.from(map['optedInUserIds'])
-          : [],
+      userShares: Map<String, dynamic>.from(map['userShares'] ?? {}
+      ),
     );
   }
   factory GroceryItem.fromDocument(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
 
-    return GroceryItem(
-      id: doc.id,
-      name: data['name'] ?? '',
-      price: (data['price'] ?? 0).toDouble(),
-      quantity: (data['quantity'] ?? 0).toDouble(),
-      optedInUserIds: List<String>.from(data['optedInUserIds'] ?? []),
-      addedBy: data['addedByUserId'] ?? '',
-    );
+    return GroceryItem.fromMap(data);
   }
 }

@@ -5,6 +5,8 @@ import '../services/auth_service.dart';
 import '../models/user.dart';
 
 class SearchUsersScreen extends StatefulWidget {
+  const SearchUsersScreen({super.key});
+
   @override
   _SearchUsersScreenState createState() => _SearchUsersScreenState();
 }
@@ -116,6 +118,9 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
                       setState(() {
                         _searchQuery = value;
                       });
+                    },
+                    onSubmitted: (value){
+                      _searchUsers();
                     },
                   ),
                 ),

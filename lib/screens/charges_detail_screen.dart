@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/database_service.dart';
-import '../models/basket.dart';
-import '../models/grocery_item.dart';
 import '../models/charges.dart';
 
 class ChargesDetailScreen extends StatefulWidget {
@@ -9,7 +7,7 @@ class ChargesDetailScreen extends StatefulWidget {
   final String userName;
   final String currentUserId;
 
-  ChargesDetailScreen({
+  const ChargesDetailScreen({super.key, 
     required this.otherUserId,
     required this.userName,
     required this.currentUserId,
@@ -76,10 +74,10 @@ class _ChargesDetailScreenState extends State<ChargesDetailScreen> {
               bool showRequestResolutionButton = isPayer && charge.status == 'pending';
               bool showRequestSentIndicator = isPayer && charge.status == 'requested';
 
-              String splitWithText = charge.item.optedInUserIds.length - 1 == 1
-                  ? 'Split with: ${charge.item.optedInUserIds.length - 1} other'
-                  : 'Split with: ${charge.item.optedInUserIds.length - 1} others';
-              if (charge.item.optedInUserIds.length == 1) {
+              String splitWithText = charge.item.userShares.length - 1 == 1
+                  ? 'Split with: ${charge.item.userShares.length - 1} other'
+                  : 'Split with: ${charge.item.userShares.length - 1} others';
+              if (charge.item.userShares.length == 1) {
                 splitWithText = "Not split";
               }
 

@@ -6,7 +6,7 @@ class EditItemScreen extends StatefulWidget {
   final GroceryItem item;
   final String basketId;
 
-  EditItemScreen({required this.item, required this.basketId});
+  const EditItemScreen({super.key, required this.item, required this.basketId});
 
   @override
   _EditItemScreenState createState() => _EditItemScreenState();
@@ -36,7 +36,7 @@ class _EditItemScreenState extends State<EditItemScreen> {
         price: _price,
         quantity: _quantity,
         addedBy: widget.item.addedBy,
-        optedInUserIds: widget.item.optedInUserIds,
+        userShares: widget.item.userShares,
       );
 
       await DatabaseService().updateItemInBasket(widget.basketId, updatedItem);

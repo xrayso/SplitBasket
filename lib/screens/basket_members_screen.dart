@@ -11,7 +11,7 @@ class BasketMembersScreen extends StatelessWidget {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
 
-  BasketMembersScreen({required this.basket});
+  BasketMembersScreen({super.key, required this.basket});
 
   @override
   Widget build(BuildContext context) {

@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/basket.dart';
@@ -7,6 +8,8 @@ import '../services/database_service.dart';
 import '../services/auth_service.dart';
 
 class CreateBasketScreen extends StatefulWidget {
+  const CreateBasketScreen({super.key});
+
   @override
   _CreateBasketScreenState createState() => _CreateBasketScreenState();
 }
@@ -29,6 +32,7 @@ class _CreateBasketScreenState extends State<CreateBasketScreen> {
         name: _basketName,
         hostId: currentUserId,
         memberIds: [currentUserId],
+        memberTokens: [],
         invitationCode: invitationCode,
       );
       await _dbService.setBasket(newBasket);

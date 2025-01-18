@@ -6,7 +6,7 @@ import '../services/database_service.dart';
 class ExpenseSummaryScreen extends StatefulWidget {
   final Basket basket;
 
-  ExpenseSummaryScreen({required this.basket});
+  const ExpenseSummaryScreen({super.key, required this.basket});
 
   @override
   _ExpenseSummaryScreenState createState() => _ExpenseSummaryScreenState();
@@ -17,6 +17,7 @@ class _ExpenseSummaryScreenState extends State<ExpenseSummaryScreen> {
   final DatabaseService _dbService = DatabaseService();
 
   Map<String, double> balances = {};
+  double totalBasketPrice = 0;
   Map<String, String> userNames = {};
   bool isLoading = true;
 
@@ -31,27 +32,27 @@ class _ExpenseSummaryScreenState extends State<ExpenseSummaryScreen> {
     final String hostId = widget.basket.hostId;
     // Initialize balances map
     Map<String, double> tempBalances = {};
-
+    double tempTotalCost = 0;
     // Collect all user IDs to fetch their names later
-    Set<String> userIds = Set();
+    Set<String> userIds = {};
 
     for (var item in widget.basket.items) {
       double totalCost = item.price * item.quantity;
-      int numUsers = item.optedInUserIds.length;
+      tempTotalCost += totalCost;
+      int numUsers = item.userShares.length;
       if (numUsers == 0) continue; // Avoid division by zero
-      double costPerUser = totalCost / numUsers;
 
-      for (var userId in item.optedInUserIds) {
+      for (var userId in item.userShares.keys) {
         // Skip if the user is both the adder and opted-in user (they don't owe themselves)
         if (userId == hostId) continue;
-
+        double cost = item.userShares[userId]['share'];
         // Update balances
         if (userId == currentUserId) {
           // Current user owes to the adder
-          tempBalances[hostId] = (tempBalances[hostId] ?? 0) + costPerUser;
+          tempBalances[hostId] = (tempBalances[hostId] ?? 0) + cost;
         } else if (hostId == currentUserId) {
           // Other user owes to current user
-          tempBalances[userId] = (tempBalances[userId] ?? 0) - costPerUser;
+          tempBalances[userId] = (tempBalances[userId] ?? 0) - cost;
         }
         // Collect user IDs
         userIds.add(userId);
@@ -64,6 +65,7 @@ class _ExpenseSummaryScreenState extends State<ExpenseSummaryScreen> {
     setState(() {
       balances = tempBalances;
       isLoading = false;
+      totalBasketPrice = tempTotalCost;
     });
   }
 
@@ -88,29 +90,43 @@ class _ExpenseSummaryScreenState extends State<ExpenseSummaryScreen> {
           ? Center(child: CircularProgressIndicator())
           : balances.isEmpty
           ? Center(child: Text('No expenses to show.'))
-          : ListView.builder(
-        itemCount: balances.length,
-        itemBuilder: (context, index) {
-          String otherUserId = balances.keys.elementAt(index);
-          double amount = balances[otherUserId]!;
-          String otherUserName = userNames[otherUserId] ?? 'Unknown User';
+          : Column(
+        children: [
+          // Compute and display the total price
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              'Total Basket Price: \$${totalBasketPrice.toStringAsFixed(2)}',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: balances.length,
+              itemBuilder: (context, index) {
+                String otherUserId = balances.keys.elementAt(index);
+                double amount = balances[otherUserId]!;
+                String otherUserName = userNames[otherUserId] ?? 'Unknown User';
 
-          String message;
-          if (amount > 0) {
-            // Current user owes this person
-            message = 'You owe $otherUserName \$${amount.toStringAsFixed(2)}';
-          } else if (amount < 0) {
-            // This person owes current user
-            message = '$otherUserName owes you \$${(-amount).toStringAsFixed(2)}';
-          } else {
-            // No balance
-            message = 'You are settled with $otherUserName';
-          }
+                String message;
+                if (amount > 0) {
+                  // Current user owes this person
+                  message = 'You owe $otherUserName \$${amount.toStringAsFixed(2)}';
+                } else if (amount < 0) {
+                  // This person owes current user
+                  message = '$otherUserName owes you \$${(-amount).toStringAsFixed(2)}';
+                } else {
+                  // No balance
+                  message = 'You are settled with $otherUserName';
+                }
 
-          return ListTile(
-            title: Text(message),
-          );
-        },
+                return ListTile(
+                  title: Text(message),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

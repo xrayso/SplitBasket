@@ -5,6 +5,7 @@ class User{
   final String lowerCaseUserName;
   final String friendCode;
   final String email;
+  final String token;
   final List<String> friendIds;
   final List<String> incomingFriendRequests;
   final List<String> outgoingFriendRequests;
@@ -15,6 +16,7 @@ class User{
     required this.lowerCaseUserName,
     required this.friendCode,
     required this.email,
+    required this.token,
     this.friendIds = const [],
     this.incomingFriendRequests = const [],
     this.outgoingFriendRequests = const [],
@@ -27,6 +29,7 @@ class User{
       'lowerCaseUserName': lowerCaseUserName,
       'friendCode': friendCode,
       'email': email,
+      'token': token,
       'friendIds': friendIds,
       'incomingFriendRequests': incomingFriendRequests,
       'outgoingFriendRequests': outgoingFriendRequests,
@@ -40,6 +43,7 @@ class User{
       lowerCaseUserName: map['lowerCaseUserName'],
       friendCode: map['friendCode'] ?? '',
       email: map['email'] ?? '',
+      token: map['token'] ?? '',
       friendIds: List<String>.from(map['friendIds'] ?? []),
       incomingFriendRequests: List<String>.from(map['incomingFriendRequests'] ?? []),
       outgoingFriendRequests: List<String>.from(map['outgoingFriendRequests'] ?? []),

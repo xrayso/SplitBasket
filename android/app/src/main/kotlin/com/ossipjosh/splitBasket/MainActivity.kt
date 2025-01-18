@@ -1,4 +1,4 @@
-package com.example.split_basket
+package com.ossipjosh.splitBasket
 
 import io.flutter.embedding.android.FlutterActivity
 

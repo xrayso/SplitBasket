@@ -9,6 +9,8 @@ class ProfileScreen extends StatelessWidget {
   final DatabaseService _databaseService = DatabaseService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  ProfileScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     final String currentUserId = _auth.currentUser!.uid;

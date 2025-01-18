@@ -8,6 +8,8 @@ import 'package:badges/badges.dart' as badges;
 
 
 class ChargesScreen extends StatefulWidget {
+  const ChargesScreen({super.key});
+
   @override
   _ChargesScreenState createState() => _ChargesScreenState();
 }

@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
 import '../services/auth_service.dart';
-import 'home_screen.dart';
-import '../models/user.dart';
 import 'main_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
+  const RegisterScreen({super.key});
+
   @override
   _RegisterScreenState createState() => _RegisterScreenState();
 }

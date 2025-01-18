@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../services/database_service.dart';
 import '../models/user.dart' as user_dart;
 import 'dart:math';
@@ -49,7 +50,7 @@ class AuthService {
       // Get the created Firebase user
       String friendCode = await _generateFriendCode(userName);
       User firebaseUser = userCredential.user!;
-
+      String memberToken = await FirebaseMessaging.instance.getToken() ?? "";
       // Update the custom user object with the correct Firebase uid
       user_dart.User user = user_dart.User(
         id: firebaseUser.uid,
@@ -57,6 +58,7 @@ class AuthService {
         userName: userName,
         lowerCaseUserName: userName.toLowerCase(),
         friendCode: friendCode,
+        token: memberToken,
       );
 
       // Set user in Firestore

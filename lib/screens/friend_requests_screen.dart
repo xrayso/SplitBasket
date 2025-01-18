@@ -7,6 +7,8 @@ class FriendRequestsScreen extends StatelessWidget {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
 
+  FriendRequestsScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     final String currentUserId = _authService.currentUser!.uid;

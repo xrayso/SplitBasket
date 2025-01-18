@@ -6,7 +6,7 @@ import '../models/user.dart';
 class InviteFriendsScreen extends StatefulWidget {
   final String basketId;
 
-  InviteFriendsScreen({required this.basketId});
+  const InviteFriendsScreen({super.key, required this.basketId});
 
   @override
   _InviteFriendsScreenState createState() => _InviteFriendsScreenState();
@@ -16,7 +16,7 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
   List<User> _friends = [];
-  List<String> _selectedFriendIds = [];
+  final List<String> _selectedFriendIds = [];
 
   @override
   void initState() {
@@ -55,6 +55,7 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
                 children: _friends.map((friend) {
                   return CheckboxListTile(
                     title: Text(friend.userName),
+                    subtitle: Text(friend.email),
                     value: _selectedFriendIds.contains(friend.id),
                     onChanged: (bool? value) {
                       setState(() {
@@ -74,11 +75,11 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
               padding: EdgeInsets.symmetric(horizontal: 20.0),
               child: ElevatedButton(
                 onPressed: _inviteFriends,
-                child: Text('Send Invitations'),
                 style: ElevatedButton.styleFrom(
                   padding: EdgeInsets.symmetric(vertical: 15.0),
                   minimumSize: Size(double.infinity, 50), // Makes the button full-width
                 ),
+                child: Text('Send Invitations'),
               ),
             ),
             SizedBox(height: 20), // Adds space below the button

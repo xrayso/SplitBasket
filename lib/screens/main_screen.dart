@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'basket_screen.dart';
 import 'home_screen.dart';
 import 'friends_list_screen.dart';
 import 'charges_screen.dart';
@@ -6,7 +9,13 @@ import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import 'package:badges/badges.dart' as badges;
 
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+FlutterLocalNotificationsPlugin();
+
+
 class MainScreen extends StatefulWidget {
+  const MainScreen({Key? key}) : super(key: key);
+
   @override
   _MainScreenState createState() => _MainScreenState();
 }
@@ -21,6 +30,64 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: _currentIndex);
+    _initializeFirebaseMessaging();
+  }
+
+
+  void _initializeFirebaseMessaging() {
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+    messaging.requestPermission();
+
+    // This fires when a message is received in the foreground
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      if (message.notification != null) {
+        _showSnackbar(message.notification!.title, message.notification!.body);
+        _showLocalNotification(message);
+      }
+    });
+
+    // This fires when the user taps on a notification & your app is opened
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      if (message.data.containsKey('basketId')) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BasketScreen(basketId: message.data['basketId']),
+          ),
+        );
+      }
+    });
+  }
+
+  // Show a quick snackbar in the UI
+  void _showSnackbar(String? title, String? body) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$title: $body')),
+    );
+  }
+
+  /// Show a local notification using flutter_local_notifications,
+  /// referencing our custom sound channel.
+  void _showLocalNotification(RemoteMessage message) {
+    // Title/body fallback if null
+    String notiTitle = message.notification?.title ?? 'Basket Finalized!';
+    String notiBody = message.notification?.body ?? 'Check your charges';
+    String channelId = message.notification?.android?.channelId ?? "default_channel_id";
+
+    flutterLocalNotificationsPlugin.show(
+      0, // notification ID
+      notiTitle,
+      notiBody,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          channelId,
+          'Notification Channel',
+          playSound: false
+        ),
+      ),
+      payload: message.data['basketId'], // optional
+    );
   }
 
   @override
@@ -37,9 +104,7 @@ class _MainScreenState extends State<MainScreen> {
       body: PageView(
         controller: _pageController,
         onPageChanged: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
+          setState(() => _currentIndex = index);
         },
         children: [
           HomeScreen(),
@@ -63,12 +128,12 @@ class _MainScreenState extends State<MainScreen> {
                   setState(() => _currentIndex = index);
                   _pageController.animateToPage(
                     index,
-                    duration: Duration(milliseconds: 300),
+                    duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
                   );
                 },
                 items: [
-                  BottomNavigationBarItem(
+                  const BottomNavigationBarItem(
                     icon: Icon(Icons.home),
                     label: 'Baskets',
                   ),
@@ -77,11 +142,11 @@ class _MainScreenState extends State<MainScreen> {
                         ? badges.Badge(
                       badgeContent: Text(
                         friendRequestCount.toString(),
-                        style: TextStyle(color: Colors.white),
+                        style: const TextStyle(color: Colors.white),
                       ),
-                      child: Icon(Icons.people),
+                      child: const Icon(Icons.people),
                     )
-                        : Icon(Icons.people),
+                        : const Icon(Icons.people),
                     label: 'Friends',
                   ),
                   BottomNavigationBarItem(
@@ -89,11 +154,11 @@ class _MainScreenState extends State<MainScreen> {
                         ? badges.Badge(
                       badgeContent: Text(
                         pendingChargesCount.toString(),
-                        style: TextStyle(color: Colors.white),
+                        style: const TextStyle(color: Colors.white),
                       ),
-                      child: Icon(Icons.receipt),
+                      child: const Icon(Icons.receipt),
                     )
-                        : Icon(Icons.receipt),
+                        : const Icon(Icons.receipt),
                     label: 'Charges',
                   ),
                 ],

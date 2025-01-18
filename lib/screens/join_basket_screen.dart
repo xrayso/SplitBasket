@@ -1,9 +1,11 @@
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'basket_screen.dart';
 
 class JoinBasketScreen extends StatefulWidget {
+  const JoinBasketScreen({super.key});
+
   @override
   _JoinBasketScreenState createState() => _JoinBasketScreenState();
 }
@@ -22,8 +24,9 @@ class _JoinBasketScreenState extends State<JoinBasketScreen> {
       });
 
       try {
+        String? memberToken = await FirebaseMessaging.instance.getToken();
         final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('getBasketByInvitationCode');
-        final result = await callable.call({'invitationCode': _invitationCode});
+        final result = await callable.call({'invitationCode': _invitationCode, 'memberToken' : memberToken});
 
         if (result.data == null || result.data['basketId'] == null) {
           setState(() {

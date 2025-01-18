@@ -1,3 +1,5 @@
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/basket.dart';
 import 'basket_members_screen.dart';
@@ -12,7 +14,7 @@ import 'add_item_screen.dart';
 class BasketScreen extends StatefulWidget {
   final String basketId;
 
-  BasketScreen({required this.basketId});
+  const BasketScreen({super.key, required this.basketId});
 
   @override
   _BasketScreenState createState() => _BasketScreenState();
@@ -24,16 +26,18 @@ class _BasketScreenState extends State<BasketScreen> {
   int _currentIndex = 1; // Start with the middle tab selected
   late PageController _pageController; // Declare PageController
 
+
   @override
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: _currentIndex);
   }
 
+
+
   @override
   void dispose() {
-    _pageController
-        .dispose(); // Dispose of the controller when the widget is removed
+    _pageController.dispose(); // Dispose of the controller when the widget is removed
     super.dispose();
   }
 
@@ -63,7 +67,7 @@ class _BasketScreenState extends State<BasketScreen> {
         }
         Basket basket = snapshot.data!;
         // List of pages for the bottom navigation
-        final List<Widget> _pages = [
+        final List<Widget> pages = [
           // Left Tab: Basket Members Screen
           BasketMembersScreen(basket: basket),
           // Middle Tab: Main Basket Page
@@ -91,15 +95,9 @@ class _BasketScreenState extends State<BasketScreen> {
               itemCount: basket.items.length,
               itemBuilder: (context, index) {
                 final item = basket.items[index];
-                final isOptedIn =
-                item.optedInUserIds.contains(currentUserId);
                 return GroceryItemTile(
                   key: ValueKey(item.id),
                   item: item,
-                  onTap: () async {
-                    await _toggleOptIn(item, basket.id);
-                  },
-                  isOptedIn: isOptedIn,
                   basketId: widget.basketId,
                 );
               },
@@ -128,7 +126,7 @@ class _BasketScreenState extends State<BasketScreen> {
                 _currentIndex = index; // Update the current index when swiped
               });
             },
-            children: _pages,
+            children: pages,
           ),
           bottomNavigationBar: BottomNavigationBar(
             currentIndex: _currentIndex,
@@ -168,11 +166,34 @@ class _BasketScreenState extends State<BasketScreen> {
   }
 
   void _finalizeBasket(BuildContext context, Basket basket) async {
-    final String finalizeError = basket.items.isEmpty
-        ? "You cannot finalize a basket with no items. Please add items to the basket before finalizing"
-        : "All items must have at least one opted-in user before finalizing.";
-    if (basket.items.isEmpty ||
-        basket.items.any((item) => item.optedInUserIds.isEmpty)) {
+    String finalizeError = "";
+    String itemNotOptedIn = "";
+    String itemNotCorrectShare = "";
+    for (GroceryItem item in basket.items){
+      double shareSum = 0;
+      if (item.userShares.isEmpty){
+        itemNotOptedIn = item.name;
+        break;
+      }
+      for (Map<String, dynamic> shareInfo in item.userShares.values){
+        shareSum += shareInfo['share'];
+      }
+      if (shareSum - 1 > 0.01 || shareSum - 1 < -0.01){
+        itemNotCorrectShare = item.name;
+        break;
+      }
+    }
+
+    if (basket.items.isEmpty){
+      finalizeError = "You cannot finalize a basket with no items. Please add items to the basket before finalizing";
+    }else if (itemNotOptedIn != ""){
+      finalizeError = "No one has opted into item [$itemNotOptedIn]}.";
+    }else if (itemNotCorrectShare != ""){
+      finalizeError = "Shares do not add up to cost for item [$itemNotCorrectShare].";
+    }
+
+
+    if (finalizeError != "") {
       await showDialog(
         context: context,
         builder: (context) =>
@@ -227,10 +248,5 @@ class _BasketScreenState extends State<BasketScreen> {
           ),
     );
     if (confirm) await _dbService.deleteBasket(basket.id);
-  }
-
-  Future<void> _toggleOptIn(GroceryItem item, String basketId) async {
-    final currentUserId = _authService.currentUser!.uid;
-    await _dbService.toggleOptIn(item, basketId, currentUserId);
   }
 }
