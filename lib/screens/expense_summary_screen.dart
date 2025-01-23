@@ -45,7 +45,7 @@ class _ExpenseSummaryScreenState extends State<ExpenseSummaryScreen> {
       for (var userId in item.userShares.keys) {
         // Skip if the user is both the adder and opted-in user (they don't owe themselves)
         if (userId == hostId) continue;
-        double cost = item.userShares[userId]['share'];
+        double cost = item.userShares[userId]['share'] * totalCost;
         // Update balances
         if (userId == currentUserId) {
           // Current user owes to the adder
@@ -100,24 +100,27 @@ class _ExpenseSummaryScreenState extends State<ExpenseSummaryScreen> {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
           ),
+          Text(
+            'After 13% Tax: \$${(totalBasketPrice * 1.13).toStringAsFixed(2)}',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
           Expanded(
             child: ListView.builder(
               itemCount: balances.length,
               itemBuilder: (context, index) {
                 String otherUserId = balances.keys.elementAt(index);
                 double amount = balances[otherUserId]!;
-                String otherUserName = userNames[otherUserId] ?? 'Unknown User';
 
                 String message;
                 if (amount > 0) {
                   // Current user owes this person
-                  message = 'You owe $otherUserName \$${amount.toStringAsFixed(2)}';
+                  message = 'You owe \$${amount.toStringAsFixed(2)}';
                 } else if (amount < 0) {
                   // This person owes current user
-                  message = '$otherUserName owes you \$${(-amount).toStringAsFixed(2)}';
+                  message = 'You are owed \$${(-amount).toStringAsFixed(2)}';
                 } else {
                   // No balance
-                  message = 'You are settled with $otherUserName';
+                  message = 'You are even';
                 }
 
                 return ListTile(

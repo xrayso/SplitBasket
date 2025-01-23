@@ -47,6 +47,38 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
     }
   }
 
+  void _searchUsersRelaxed(String partialName) async {
+    // 1. Clean up the input
+    final queryText = partialName.trim().toLowerCase();
+    if (queryText.isEmpty) {
+      // If there's nothing typed, you might want to clear results
+      setState(() {
+        _searchResults = [];
+      });
+      return;
+    }
+
+    // 2. Perform a range query for “starts with”
+    //    we use "queryText + '\uf8ff'" to capture anything
+    //    that starts with queryText.
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('lowerCaseUserName', isGreaterThanOrEqualTo: queryText)
+        .where('lowerCaseUserName', isLessThanOrEqualTo: queryText + '\uf8ff')
+        .limit(5) // Return only top 5 matches
+        .get();
+
+    // 3. Convert docs -> List<User>, excluding current user
+    final users = snapshot.docs
+        .map((doc) => User.fromMap(doc.data()))
+        .where((user) => user.id != _currentUserId)
+        .toList();
+
+    // 4. Update state
+    setState(() {
+      _searchResults = users;
+    });
+  }
   void _searchUsers() async {
     if (!_searchQuery.contains('#')) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -118,10 +150,12 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
                       setState(() {
                         _searchQuery = value;
                       });
+                      _searchUsersRelaxed(_searchQuery);
                     },
                     onSubmitted: (value){
                       _searchUsers();
                     },
+                    onEditingComplete: _searchUsers,
                   ),
                 ),
                 IconButton(

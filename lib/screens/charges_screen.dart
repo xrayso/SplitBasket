@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:split_basket/models/aggregated_resolution_request.dart';
 import 'charges_detail_screen.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
@@ -143,6 +144,9 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
               } else {
                 tileColor = Colors.red[100]; // User is payer (owes money)
               }
+              if (netAmount == 0){
+                tileColor = Colors.orange[200];
+              }
 
               return FutureBuilder<String>(
                 future: _dbService.getUserNameById(otherUserId),
@@ -192,8 +196,8 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
     );
   }
   Widget _buildPendingRequests(String currentUserId) {
-    return StreamBuilder<List<Charge>>(
-      stream: _dbService.getPendingResolutionRequests(currentUserId),
+    return StreamBuilder<List<AggregatedResolutionRequest>>(
+      stream: _dbService.getUniquePendingResolutionRequests(currentUserId),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
@@ -202,45 +206,57 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
           return Center(child: Text('No pending requests.'));
         }
 
-        final charges = snapshot.data!;
+        // This is now a list of aggregated requests, each from a different user
+        final requests = snapshot.data!;
 
         return ListView.builder(
-          itemCount: charges.length,
+          itemCount: requests.length,
           itemBuilder: (context, index) {
-            Charge charge = charges[index];
+            final aggregatedRequest = requests[index];
 
             return ListTile(
               tileColor: Colors.green[100],
-              title: Text(charge.item.name),
-              subtitle: FutureBuilder(
-                future: _dbService.getUserNameById(charge.payerId),
-                builder: (context, snapshot){
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Text(
-                      "Amount: \$${charge.amount.toStringAsFixed(2)}\nRequested by: Loading...",
-                    );
-                  } else if (snapshot.hasError) {
-                    return Text(
-                        "Amount: \$${charge.amount.toStringAsFixed(2)}\n",
-                    );
+              // Look up the requester's username
+              title: FutureBuilder<String>(
+                future: _dbService.getUserNameById(aggregatedRequest.requestedBy),
+                builder: (context, userSnapshot) {
+                  if (userSnapshot.connectionState == ConnectionState.waiting) {
+                    return Text("Requested by: Loading...");
+                  } else if (userSnapshot.hasError) {
+                    return Text("Requested by: <error>");
                   } else {
-                    String username = snapshot.data!;
-                    return Text(
-                      "Amount: \$${charge.amount.toStringAsFixed(2)}\nRequested by: $username",
-                    );
+                    final requesterName = userSnapshot.data ?? "Unknown";
+                    return Text("Requested by: $requesterName");
                   }
-                }
+                },
+              ),
+              // Show the total aggregated amount
+              subtitle: Text(
+                  "Amount Requested: \$"
+                      "${aggregatedRequest.totalAmountRequested.toStringAsFixed(2)}"
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Accept all requests from this user
                   ElevatedButton(
-                    onPressed: () => _acceptRequest(charge),
+                    onPressed: () => _acceptAllRequests(
+                      currentUserId,
+                      aggregatedRequest,
+                    ),
                     child: Text('Accept'),
                   ),
+                  SizedBox(width: 8),
+                  // Decline all requests from this user
                   ElevatedButton(
-                    onPressed: () => _declineRequest(charge),
-                    child: Text('Decline', style: TextStyle(color: Colors.red),),
+                    onPressed: () => _declineAllRequests(
+                      currentUserId,
+                      aggregatedRequest,
+                    ),
+                    child: Text(
+                      'Decline',
+                      style: TextStyle(color: Colors.red),
+                    ),
                   ),
                 ],
               ),
@@ -256,6 +272,17 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
       SnackBar(content: Text('Charge accepted and resolved.')),
     );
   }
+
+  Future<void> _acceptAllRequests(String currentUserId, AggregatedResolutionRequest request) async {
+    // "Accept" means to resolve all requested charges where
+    // payer == request.requestedBy, payee == currentUserId
+    await _dbService.resolveCharges(currentUserId, request);
+  }
+
+  Future<void> _declineAllRequests(String currentUserId, AggregatedResolutionRequest request) async {
+    await _dbService.declineRequests(currentUserId, request);
+  }
+
 
   void _declineRequest(Charge charge) async {
     await _dbService.declineChargeResolution(charge.id);

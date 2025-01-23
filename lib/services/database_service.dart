@@ -1,10 +1,8 @@
-import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:split_basket/services/notification_service.dart';
 import 'package:uuid/uuid.dart';
+import '../models/aggregated_resolution_request.dart';
 import '../models/user.dart' as user_dart;
 import '../models/basket.dart';
 import '../models/grocery_item.dart';
@@ -21,6 +19,18 @@ class DatabaseService {
     return _db.collection('baskets').doc(basket.id).set(basket.toMap(), options);
   }
 
+  Future<Basket> getBasketById(String id) async{
+    try {
+      DocumentSnapshot doc = await _db.collection('baskets').doc(id).get();
+      if (doc.exists) {
+        return Basket.fromMap(doc.data() as Map<String, dynamic>);
+      } else {
+        throw Exception('Basket not found');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
   // Get a basket stream by ID
   Stream<Basket> streamBasket(String id) {
     return _db.collection('baskets').doc(id).snapshots().map((snapshot) {
@@ -152,13 +162,20 @@ class DatabaseService {
       'incomingFriendRequests': FieldValue.arrayUnion([senderId]),
     });
 
-    user_dart.User user = await getUserById(receiverId);
+    user_dart.User receiver = await getUserById(receiverId);
+    user_dart.User sender = await getUserById(senderId);
 
     String title = "Friend Request";
-    String body = "${user.userName} has sent you a friend request!";
+    String body = "${sender.userName} has sent you a friend request!";
 
-    sendNotification(title, body, [user.token]);
+    sendNotification(title, body, [receiver.token]);
 
+  }
+
+  void setToken(String userId, String token){
+    _db.collection('users').doc(userId).update({
+      'token': token,
+    });
   }
 
   Future<void> acceptFriendRequest(String currentUserId, String senderId) async {
@@ -174,12 +191,13 @@ class DatabaseService {
       'friendIds': FieldValue.arrayUnion([currentUserId]),
     });
 
-    user_dart.User user = await getUserById(senderId);
+    user_dart.User currentUser = await getUserById(currentUserId);
+    user_dart.User sender = await getUserById(senderId);
 
     String title = "New Friend!";
-    String body = "${user.userName} has accepted your friend request!";
+    String body = "${currentUser.userName} has accepted your friend request!";
 
-    sendNotification(title, body, [user.token]);
+    sendNotification(title, body, [sender.token]);
 
   }
 
@@ -207,11 +225,12 @@ class DatabaseService {
     await _db.collection('baskets').doc(basketId).update({
       'invitedUserIds': FieldValue.arrayUnion(friendIds),
     });
+    Basket basket = await getBasketById(basketId);
     for (String friendId in friendIds) {
       user_dart.User user = await getUserById(friendId);
 
       String title = "Basket Invite";
-      String body = "${user.userName} has invited you to join a basket!";
+      String body = "You have been invited you to join the basket ${basket.name}!";
 
       sendNotification(title, body, [user.token]);
     }
@@ -226,8 +245,8 @@ class DatabaseService {
         snapshot.docs.map((doc) => Basket.fromMap(doc.data())).toList());
   }
 
-  Future<void> finalizeBasket(Basket basket) async {
-    List<Charge> charges = _calculateCharges(basket);
+  Future<void> finalizeBasket(Basket basket, double taxPercent) async {
+    List<Charge> charges = _calculateCharges(basket, taxPercent);
     try {
       for (Charge charge in charges) {
         await setCharge(charge);
@@ -250,31 +269,66 @@ class DatabaseService {
     }
   }
 
+
+  Future<void> declineAllRequests(String payeeId, String payerId) async {
+    QuerySnapshot snapshot = await _db
+        .collection('charges')
+        .where('payeeId', isEqualTo: payeeId)
+        .where('payerId', isEqualTo: payerId)
+        .where('status', isEqualTo: 'requested')
+        .get();
+
+    WriteBatch batch = _db.batch();
+    for (var doc in snapshot.docs) {
+      batch.update(doc.reference, {
+        'requestedBy': '',
+        'status': 'pending',
+      });
+    }
+    await batch.commit();
+  }
+
+
   // Updated to handle userShares as { uid: {share: double, isManual: bool} }
-  List<Charge> _calculateCharges(Basket basket) {
+  List<Charge> _calculateCharges(Basket basket, double taxPercent) {
     final hostId = basket.hostId;
+    Map<String, double> totalUserCosts = {};
     List<Charge> charges = [];
     for (GroceryItem item in basket.items) {
       double totalItemCost = item.price * item.quantity;
-      // item.userShares is now a Map<String, dynamic>
-      // where each value is { 'share': double, 'isManual': bool }
       item.userShares.forEach((userId, shareData) {
         if (userId == hostId) return;
         double fraction = (shareData['share'] ?? 0.0).toDouble();
-        double cost = totalItemCost * fraction;
-        if (cost > 0) {
+        double userCost = totalItemCost * fraction;
+        totalUserCosts[userId] = (totalUserCosts[userId] ?? 0) + userCost;
+        if (userCost > 0) {
           charges.add(
             Charge(
               id: Uuid().v4(),
               payerId: userId,
               payeeId: hostId,
-              amount: cost,
+              amount: userCost,
               item: item,
               date: DateTime.now(),
             ),
           );
         }
       });
+    }
+    for (var entry in  totalUserCosts.entries){
+      if (entry.value > 0) {
+        double taxPrice = entry.value * taxPercent;
+        charges.add(
+          Charge(
+            id: Uuid().v4(),
+            payerId: entry.key,
+            payeeId: hostId,
+            amount: taxPrice,
+            item: GroceryItem(id: Uuid().v4(), name: "Tax", price: taxPrice, quantity: 1, addedBy: hostId, userShares: {}),
+            date: DateTime.now(),
+          ),
+        );
+      }
     }
     return charges;
   }
@@ -457,8 +511,28 @@ class DatabaseService {
     });
   }
 
+  Future<Charge> getChargeById(String id) async {
+    try {
+      DocumentSnapshot doc = await _db.collection('charges').doc(id).get();
+      if (doc.exists) {
+        return Charge.fromMap(doc.data() as Map<String, dynamic>);
+      } else {
+        throw Exception('User not found');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<void> resolveCharge(String chargeId) async {
     await _db.collection('charges').doc(chargeId).delete();
+    String title = "Charge resolved!";
+
+    Charge charge = await getChargeById(chargeId);
+
+    String body = "${getUserNameById(charge.payeeId)} resolved the charge!";
+    String token = await getUserTokenById(charge.payerId);
+    sendNotification(title, body, [token]);
   }
 
   Future<void> requestChargeResolution(String chargeId, String currentUserId) async {
@@ -467,6 +541,38 @@ class DatabaseService {
       'status': 'requested',
     });
 
+
+    Charge charge = await getChargeById(chargeId);
+    String senderName = await getUserNameById(charge.payerId);
+    String receiverToken = await getUserTokenById(charge.payeeId);
+
+    String title = "Resolve Request";
+    String body = "$senderName requested to resolve charge";
+
+    sendNotification(title, body, [receiverToken]);
+
+  }
+
+
+  Future<void> resolveCharges(String currentUserId, AggregatedResolutionRequest request) async{
+      QuerySnapshot snapshot = await _db
+          .collection('charges')
+          .where('payeeId', isEqualTo: currentUserId)
+          .where('payerId', isEqualTo: request.requestedBy)
+          .get();
+      WriteBatch batch = _db.batch();
+      for (var doc in snapshot.docs) {
+        if (request.chargeIds.contains(doc.id)) {
+          batch.delete(doc.reference);
+        }
+      }
+      await batch.commit();
+
+      String title = "Charges resolved!";
+      String name = await getUserNameById(currentUserId);
+      String body = "$name resolved your charges!";
+      String token = await getUserTokenById(request.requestedBy);
+      sendNotification(title, body, [token]);
   }
 
   Future<void> resolveAllCharges(String currentUserId, String otherUserId) async {
@@ -480,6 +586,13 @@ class DatabaseService {
       batch.delete(doc.reference);
     }
     await batch.commit();
+
+    String title = "All Charges resolved!";
+    String name = await getUserNameById(currentUserId);
+    String body = "$name resolved all your charges!";
+    String token = await getUserTokenById(otherUserId);
+    sendNotification(title, body, [token]);
+
   }
 
   Future<void> requestResolutionForAllCharges(
@@ -498,7 +611,49 @@ class DatabaseService {
       });
     }
     await batch.commit();
+
+    String title = "Requested Charges Resolved";
+    String name = await getUserNameById(currentUserId);
+    String body = "$name has requested to resolve all charges";
+    String token = await getUserTokenById(otherUserId);
+    sendNotification(title, body, [token]);
   }
+  Stream<List<AggregatedResolutionRequest>> getUniquePendingResolutionRequests(String userId) {
+    // We look for charges where:
+    //   - payeeId = userId
+    //   - status = 'requested'
+    // Then we group them by the 'requestedBy' field and sum the amounts.
+    return _db
+        .collection('charges')
+        .where('payeeId', isEqualTo: userId)
+        .where('status', isEqualTo: 'requested')
+        .snapshots()
+        .map((snapshot) {
+      // Convert each document into a Charge object
+      final charges = snapshot.docs
+          .map((doc) => Charge.fromMap(doc.data()))
+          .toList();
+
+      // Aggregate by requestedBy
+      Map<String, AggregatedResolutionRequest> aggregatedMap = {};
+
+      for (var charge in charges) {
+        final requester = charge.requestedBy;
+        if (requester.isEmpty) continue; // skip if somehow blank
+        if (aggregatedMap.containsKey(requester)){
+          aggregatedMap[requester]?.totalAmountRequested += charge.amount;
+        }else{
+          aggregatedMap[requester] = AggregatedResolutionRequest(requestedBy: requester, totalAmountRequested: charge.amount, chargeIds: [charge.id]);
+        }
+      }
+
+      // Convert the map into a list of AggregatedResolutionRequest objects
+      return aggregatedMap.entries.map((entry) {
+        return entry.value;
+      }).toList();
+    });
+  }
+
 
   Stream<int> getPendingRequestCount(String userId) {
     return _db
@@ -521,6 +676,7 @@ class DatabaseService {
 
   Future<void> acceptChargeResolution(String chargeId) async {
     await resolveCharge(chargeId);
+
   }
 
   Future<void> declineChargeResolution(String chargeId) async {
@@ -528,5 +684,25 @@ class DatabaseService {
       'requestedBy': '',
       'status': 'pending',
     });
+  }
+
+  Future<void> declineRequests(String payeeId, AggregatedResolutionRequest request) async {
+    QuerySnapshot snapshot = await _db
+        .collection('charges')
+        .where('payeeId', isEqualTo: payeeId)
+        .where('payerId', isEqualTo: request.requestedBy)
+        .where('status', isEqualTo: 'requested')
+        .get();
+
+    WriteBatch batch = _db.batch();
+    for (var doc in snapshot.docs) {
+      if (request.chargeIds.contains(doc.id)) {
+        batch.update(doc.reference, {
+          'requestedBy': '',
+          'status': 'pending',
+        });
+      }
+    }
+    await batch.commit();
   }
 }

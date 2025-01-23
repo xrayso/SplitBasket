@@ -15,6 +15,7 @@ Future<void> setupNotificationChannels() async {
     playSound: true,
   );
 
+
   // Custom sound channel
   const AndroidNotificationChannel customSoundChannel = AndroidNotificationChannel(
     'samsung_easteregg_channel',

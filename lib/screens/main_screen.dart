@@ -34,7 +34,8 @@ class _MainScreenState extends State<MainScreen> {
   }
 
 
-  void _initializeFirebaseMessaging() {
+
+  void _initializeFirebaseMessaging() async{
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     messaging.requestPermission();
 
@@ -57,6 +58,8 @@ class _MainScreenState extends State<MainScreen> {
         );
       }
     });
+    String token = await messaging.getToken() ?? "";
+    _dbService.setToken(_authService.currentUser!.uid, token);
   }
 
   // Show a quick snackbar in the UI

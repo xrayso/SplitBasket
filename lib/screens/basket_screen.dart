@@ -210,12 +210,39 @@ class _BasketScreenState extends State<BasketScreen> {
       );
       return;
     }
+
+    final textCtrl = TextEditingController(
+      text: (13).toStringAsFixed(0),
+    );
+    double taxPercent = 0.13;
     bool confirm = await showDialog(
       context: context,
-      builder: (context) =>
-          AlertDialog(
-            title: Text("Finalize Basket"),
-            content: Text('Are you sure you want to finalize this basket?'),
+      builder: (ctx) => AlertDialog(
+        title: Text('Finalize Basket'),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: textCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Enter Tax % On Basket',
+                  ),
+                  onChanged: (val) {
+                    final parsed = double.tryParse(val);
+                    if (parsed != null) {
+                      setDialogState(() {
+                        taxPercent = parsed / 100;
+                      });
+                    }
+                  },
+                ),
+              ],
+            );
+          },
+        ),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(context, false),
@@ -226,7 +253,7 @@ class _BasketScreenState extends State<BasketScreen> {
             ],
           ),
     );
-    if (confirm) await _dbService.finalizeBasket(basket);
+    if (confirm) await _dbService.finalizeBasket(basket, taxPercent);
   }
 
   void _deleteBasket(BuildContext context, Basket basket) async {
