@@ -213,7 +213,7 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
           itemCount: requests.length,
           itemBuilder: (context, index) {
             final aggregatedRequest = requests[index];
-
+            String requesterName = "";
             return ListTile(
               tileColor: Colors.green[100],
               // Look up the requester's username
@@ -225,7 +225,7 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
                   } else if (userSnapshot.hasError) {
                     return Text("Requested by: <error>");
                   } else {
-                    final requesterName = userSnapshot.data ?? "Unknown";
+                    requesterName = userSnapshot.data ?? "Unknown";
                     return Text("Requested by: $requesterName");
                   }
                 },
@@ -260,6 +260,19 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
                   ),
                 ],
               ),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        ChargesDetailScreen(
+                          otherUserId: requests[index].requestedBy,
+                          userName: requesterName,
+                          currentUserId: currentUserId,
+                        ),
+                  ),
+                );
+              },
             );
           },
         );

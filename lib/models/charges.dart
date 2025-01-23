@@ -10,6 +10,7 @@ class Charge{
   final double amount;
   final GroceryItem item;
   final DateTime date;
+  final bool isTax;
   String status;
   String requestedBy;
   Charge({
@@ -19,6 +20,7 @@ class Charge{
     required this.amount,
     required this.item,
     required this.date,
+    required this.isTax,
     this.status = "pending",
     this.requestedBy = '',
 
@@ -31,6 +33,7 @@ class Charge{
       payeeId: data['payeeId'],
       amount: data['amount'].toDouble(),
       item: GroceryItem.fromMap(data['item']),
+      isTax: data['isTax'],
       date: (data['date'] as Timestamp).toDate(),
       status: data['status'] ?? 'pending',
       requestedBy: data['requestedBy'] ?? '',
@@ -47,6 +50,7 @@ class Charge{
       'date': Timestamp.fromDate(date),
       'involvedUserIds': [payeeId, payerId],
       'status': status,
+      'isTax': isTax,
       'requestedBy': requestedBy,
     };
   }

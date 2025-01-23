@@ -254,7 +254,7 @@ class DatabaseService {
       String title = "Basket Finalized!";
       String body = "${basket.name} has been finalized. Check your charges!";
       sendNotification(title, body, basket.memberTokens);
-      await deleteBasket(basket.id);
+      // await deleteBasket(basket.id);
     } catch (e) {
       // If something goes wrong, here's just an example of adding an error item
       GroceryItem item = GroceryItem(
@@ -310,6 +310,7 @@ class DatabaseService {
               amount: userCost,
               item: item,
               date: DateTime.now(),
+              isTax: false,
             ),
           );
         }
@@ -324,8 +325,9 @@ class DatabaseService {
             payerId: entry.key,
             payeeId: hostId,
             amount: taxPrice,
-            item: GroceryItem(id: Uuid().v4(), name: "Tax", price: taxPrice, quantity: 1, addedBy: hostId, userShares: {}),
+            item: GroceryItem(id: Uuid().v4(), name: "Tax", price: taxPercent, quantity: 1, addedBy: hostId, userShares: {}),
             date: DateTime.now(),
+            isTax: true
           ),
         );
       }
@@ -517,7 +519,7 @@ class DatabaseService {
       if (doc.exists) {
         return Charge.fromMap(doc.data() as Map<String, dynamic>);
       } else {
-        throw Exception('User not found');
+        throw Exception('Charge not found');
       }
     } catch (e) {
       rethrow;
@@ -525,12 +527,12 @@ class DatabaseService {
   }
 
   Future<void> resolveCharge(String chargeId) async {
-    await _db.collection('charges').doc(chargeId).delete();
-    String title = "Charge resolved!";
-
     Charge charge = await getChargeById(chargeId);
+    await _db.collection('charges').doc(chargeId).delete();
 
-    String body = "${getUserNameById(charge.payeeId)} resolved the charge!";
+    String title = "Charge resolved!";
+    String userName = await getUserNameById(charge.payeeId);
+    String body = "$userName resolved the charge!";
     String token = await getUserTokenById(charge.payerId);
     sendNotification(title, body, [token]);
   }
@@ -618,7 +620,7 @@ class DatabaseService {
     String token = await getUserTokenById(otherUserId);
     sendNotification(title, body, [token]);
   }
-  Stream<List<AggregatedResolutionRequest>> getUniquePendingResolutionRequests(String userId) {
+  Stream<List<AggregatedResolutionRequest>> getUniquePendingResolutionRequests(String userId){
     // We look for charges where:
     //   - payeeId = userId
     //   - status = 'requested'

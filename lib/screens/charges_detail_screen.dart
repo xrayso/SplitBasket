@@ -81,6 +81,7 @@ class _ChargesDetailScreenState extends State<ChargesDetailScreen> {
                 splitWithText = "Not split";
               }
 
+
               Color? tileColor;
               if (charge.status == 'resolved') {
                 tileColor = Colors.grey[300]; // Resolved charges are grey
@@ -90,11 +91,14 @@ class _ChargesDetailScreenState extends State<ChargesDetailScreen> {
                 tileColor = Colors.red[100]; // User is payer (owes money)
               }
 
+              String totalString = charge.isTax ?
+              'Price ${isPayee ? 'Owed to You' : 'You Owe'}: \$${charge.amount.toStringAsFixed(2)}\nTax Percent: ${(charge.item.price * 100).toStringAsFixed(2)}%' :
+              'Price ${isPayee ? 'Owed to You' : 'You Owe'}: \$${charge.amount.toStringAsFixed(2)}\nQuantity: ${charge.item.quantity}\n$splitWithText';
+
               return ListTile(
                 tileColor: tileColor,
                 title: Text(charge.item.name),
-                subtitle: Text(
-                    'Price ${isPayee ? 'Owed to You' : 'You Owe'}: \$${charge.amount.toStringAsFixed(2)}\nQuantity: ${charge.item.quantity}\n$splitWithText'),
+                subtitle: Text(totalString),
                 trailing: charge.status == 'resolved'
                     ? Icon(Icons.check_circle, color: Colors.green)
                     : showResolveButton
