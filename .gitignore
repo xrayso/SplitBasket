@@ -76,6 +76,7 @@ web/build/
 *.log
 pubspec.lock
 .flutter-plugins-dependencies
+flutter-plugins-dependencies
 
 # Firebase configuration (if public repo)
 ios/Runner/GoogleService-Info.plist
