@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import '../services/database_service.dart';
 import '../models/user.dart' as user_dart;
 import 'dart:math';
@@ -50,7 +53,12 @@ class AuthService {
       // Get the created Firebase user
       String friendCode = await _generateFriendCode(userName);
       User firebaseUser = userCredential.user!;
-      String memberToken = await FirebaseMessaging.instance.getToken() ?? "";
+      String memberToken = "";
+      if (Platform.isAndroid) {
+        memberToken = await FirebaseMessaging.instance.getToken() ?? "";
+      }else if (Platform.isIOS){
+        memberToken = await FirebaseMessaging.instance.getAPNSToken() ?? "";
+      }
       // Update the custom user object with the correct Firebase uid
       user_dart.User user = user_dart.User(
         id: firebaseUser.uid,

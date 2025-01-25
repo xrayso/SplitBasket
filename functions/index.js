@@ -78,6 +78,17 @@ exports.sendNotification =
             channelId: channelId,
           },
         },
+        apns: {
+          payload: {
+            aps: {
+              alert: {
+                title: notificationTitle,
+                body: notificationBody,
+              },
+              sound: "default",
+            },
+          },
+        },
         data: {
           click_action: "FLUTTER_NOTIFICATION_CLICK",
         },

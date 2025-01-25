@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -24,7 +26,12 @@ class _JoinBasketScreenState extends State<JoinBasketScreen> {
       });
 
       try {
-        String? memberToken = await FirebaseMessaging.instance.getToken();
+        String memberToken = "";
+        if (Platform.isAndroid) {
+          memberToken = await FirebaseMessaging.instance.getToken() ?? "";
+        }else if (Platform.isIOS){
+          memberToken = await FirebaseMessaging.instance.getAPNSToken() ?? "";
+        }
         final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('getBasketByInvitationCode');
         final result = await callable.call({'invitationCode': _invitationCode, 'memberToken' : memberToken});
 
