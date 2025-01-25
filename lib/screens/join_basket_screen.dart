@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:split_basket/services/database_service.dart';
 import 'basket_screen.dart';
 
 class JoinBasketScreen extends StatefulWidget {
@@ -26,12 +28,8 @@ class _JoinBasketScreenState extends State<JoinBasketScreen> {
       });
 
       try {
-        String memberToken = "";
-        if (Platform.isAndroid) {
-          memberToken = await FirebaseMessaging.instance.getToken() ?? "";
-        }else if (Platform.isIOS){
-          memberToken = await FirebaseMessaging.instance.getAPNSToken() ?? "";
-        }
+        String currentUserId = FirebaseAuth.instance.currentUser?.uid ?? "";
+        String memberToken = await DatabaseService().getUserTokenById(currentUserId);
         final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('getBasketByInvitationCode');
         final result = await callable.call({'invitationCode': _invitationCode, 'memberToken' : memberToken});
 

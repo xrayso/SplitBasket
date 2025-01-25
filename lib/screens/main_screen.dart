@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -58,8 +60,13 @@ class _MainScreenState extends State<MainScreen> {
         );
       }
     });
-    String token = await messaging.getToken() ?? "";
-    _dbService.setToken(_authService.currentUser!.uid, token);
+    String memberToken = "";
+    if (Platform.isAndroid) {
+      memberToken = await FirebaseMessaging.instance.getToken() ?? "";
+    }else if (Platform.isIOS){
+      memberToken = await FirebaseMessaging.instance.getAPNSToken() ?? "";
+    }
+    _dbService.setToken(_authService.currentUser!.uid, memberToken);
   }
 
   // Show a quick snackbar in the UI

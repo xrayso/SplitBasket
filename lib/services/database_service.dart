@@ -490,7 +490,7 @@ class DatabaseService {
   }
 
   Future<void> acceptBasketInvitation(String basketId, String userId) async {
-    String? memberToken = await _messaging.getToken();
+    String? memberToken = await getUserTokenById(userId);
     await _db.collection('baskets').doc(basketId).update({
       'memberIds': FieldValue.arrayUnion([userId]),
       'memberTokens': FieldValue.arrayUnion([memberToken]),
