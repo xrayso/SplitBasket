@@ -292,6 +292,7 @@ class _BasketScreenState extends State<BasketScreen> {
             ],
           ),
     );
+    print(confirm);
     if (confirm) await _dbService.finalizeBasket(basket, taxPercent);
   }
 

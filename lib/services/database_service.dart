@@ -273,7 +273,7 @@ class DatabaseService {
       String title = "Basket Finalized!";
       String body = "${basket.name} has been finalized. Check your charges!";
       sendNotification(title, body, basket.memberTokens);
-      // await deleteBasket(basket.id);
+      await deleteBasket(basket.id);
     } catch (e) {
       // If something goes wrong, here's just an example of adding an error item
       GroceryItem item = GroceryItem(

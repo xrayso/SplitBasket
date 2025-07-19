@@ -312,26 +312,19 @@ class _ChargesScreenState extends State<ChargesScreen>
     User otherUser = await _dbService.getUserById(otherUserId);
 
       List<String> reminderTitles = [
-        "You Owe Me, Bro!",
+        "You Broke?",
         "Don’t Make Me Chase You!",
         "Debt? What Debt? Oh, THIS Debt!",
         "The IRS Would Be Faster…",
-        "Pay Up Before I Turn This Into a Netflix Special",
-        "Still Waiting… Like a Fool!",
+        "Remember me?",
         "Oh, So We’re Just NOT Paying Anymore?",
-        "You Got Time to Scroll, But Not to Pay?",
         "Breaking News: You Still Owe Me Money!",
-        "A Nobel Prize for Paying Me Back? Maybe.",
-        "I’m Just a Simple Person… Who Wants Their Money",
+        "I’m Just a Simple Person… Who Wants My Money",
         "This Debt is Old Enough to Rent a Car",
-        "Even Politicians Pay Their Debts… Sometimes",
-        "An Economic Crisis? No, Just You Owing Me",
-        "Are You Not Embarrassed?!",
         "The Money’s Not Gonna Pay Itself!",
         "Breaking News: You Still Haven’t Paid",
         "Is My Money in Witness Protection?",
         "This Isn’t a Joke… But Kinda Is",
-        "Financial Comedy at Its Finest"
       ];
 
       List<String> reminderBodies = [
