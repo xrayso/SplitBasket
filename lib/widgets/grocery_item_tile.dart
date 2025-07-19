@@ -229,7 +229,9 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
                 } else if (snapshot.hasError || !snapshot.hasData) {
                   return const Text("Unknown");
                 } else {
-                  final payerName = snapshot.data!;
+                  String payerName = snapshot.data!;
+                  payerName = "sidfsdfsdbfsjdhfsdf";
+                  final shortenedName = payerName.length > 7 ? "${payerName.substring(0, 7)}..." : payerName;
                   return Chip(
                     avatar: const CircleAvatar(
                       backgroundColor: Colors.purpleAccent,
@@ -240,7 +242,7 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
                       ),
                     ),
                     label: Text(
-                      payerName,
+                      shortenedName,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Colors.purple,
