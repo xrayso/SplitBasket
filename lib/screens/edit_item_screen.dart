@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import '../models/basket.dart';
 import '../models/grocery_item.dart';
+import '../models/user.dart';
 import '../services/database_service.dart';
 
 class EditItemScreen extends StatefulWidget {
   final GroceryItem item;
-  final String basketId;
+  final Basket basket;
 
-  const EditItemScreen({super.key, required this.item, required this.basketId});
+  const EditItemScreen({super.key, required this.item, required this.basket});
 
   @override
   _EditItemScreenState createState() => _EditItemScreenState();
@@ -14,16 +16,33 @@ class EditItemScreen extends StatefulWidget {
 
 class _EditItemScreenState extends State<EditItemScreen> {
   final _formKey = GlobalKey<FormState>();
+  final DatabaseService _dbService = DatabaseService();
   late String _name;
   late double _price;
   late int _quantity;
+  late String _paidBy;
+  bool _loading = true;
+  final Map<String, User> _basketUsers = {};
 
   @override
+
   void initState() {
     super.initState();
     _name = widget.item.name;
     _price = widget.item.price;
     _quantity = widget.item.quantity;
+    _paidBy = widget.item.paidBy;
+  }
+  Future<void> getBasketNames() async{
+    for (String userId in widget.basket.memberIds){
+      _basketUsers[userId] = await _dbService.getUserById(userId);
+    }
+
+    setState(() {
+      _loading = false;
+    });
+
+
   }
 
   void _saveItem() async {
@@ -37,21 +56,23 @@ class _EditItemScreenState extends State<EditItemScreen> {
         quantity: _quantity,
         addedBy: widget.item.addedBy,
         userShares: widget.item.userShares,
+        paidBy: _paidBy,
       );
 
-      await DatabaseService().updateItemInBasket(widget.basketId, updatedItem);
+      await _dbService.updateItemInBasket(widget.basket.id, updatedItem);
 
       Navigator.pop(context);
     }
   }
 
   void _deleteItem() async {
-    await DatabaseService().deleteItemFromBasket(widget.basketId, widget.item.id);
+    await _dbService.deleteItemFromBasket(widget.basket.id, widget.item.id);
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
+    getBasketNames();
     return Scaffold(
       appBar: AppBar(
         title: Text('Edit Item'),
@@ -94,6 +115,23 @@ class _EditItemScreenState extends State<EditItemScreen> {
                 value == null || value.isEmpty ? 'Enter quantity' : null,
                 onSaved: (value) => _quantity = int.parse(value!),
               ),
+
+              DropdownButtonFormField<String>(
+                decoration: const InputDecoration(labelText: 'Paid By'),
+                value: widget.item.paidBy, // Current selection
+                items: widget.basket.memberIds.map((userIds) {
+                  return DropdownMenuItem<String>(
+                    value: userIds,
+                    child: Text(_basketUsers[userIds]?.userName ?? ""),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  setState(() {
+                    _paidBy = val!;
+                  });
+                },
+              ),
+
               SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _saveItem,

@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:split_basket/services/auth_service.dart';
 import 'package:uuid/uuid.dart';
+import '../models/basket.dart';
 import '../models/grocery_item.dart';
+import '../models/user.dart';
 import '../services/database_service.dart';
 
 class AddItemScreen extends StatefulWidget {
-  final String basketId;
+  final Basket basket;
 
-  const AddItemScreen({super.key, required this.basketId});
+  const AddItemScreen({super.key, required this.basket});
 
   @override
   _AddItemScreenState createState() => _AddItemScreenState();
+
+
 }
 
 class _AddItemScreenState extends State<AddItemScreen> {
@@ -21,6 +25,28 @@ class _AddItemScreenState extends State<AddItemScreen> {
   late int _itemQuantity;
   late String _addedBy;
   late String basketId;
+  late String _paidBy;
+  final Map<String, User> _basketUsers = {};
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    getBasketNames();
+  }
+
+  Future<void> getBasketNames() async{
+    for (String userId in widget.basket.memberIds){
+      _basketUsers[userId] = await _dbService.getUserById(userId);
+    }
+
+    setState(() {
+      _loading = false;
+    });
+
+
+  }
+
 
 
   @override
@@ -82,6 +108,21 @@ class _AddItemScreenState extends State<AddItemScreen> {
                   _itemQuantity = int.parse(value!);
                 },
               ),
+              DropdownButtonFormField<String>(
+                decoration: const InputDecoration(labelText: 'Paid By'),
+                value: widget.basket.hostId, // Current selection
+                items: widget.basket.memberIds.map((userIds) {
+                  return DropdownMenuItem<String>(
+                    value: userIds,
+                    child: Text(_basketUsers[userIds]?.userName ?? ""),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  setState(() {
+                    _paidBy = val!;
+                  });
+                },
+              ),
               // Added By
               SizedBox(height: 20),
               // Submit Button
@@ -106,9 +147,10 @@ class _AddItemScreenState extends State<AddItemScreen> {
         price: _itemPrice,
         quantity: _itemQuantity,
         addedBy: _addedBy,
+        paidBy: _paidBy,
         userShares: {},
       );
-      await DatabaseService().addItemToBasket(widget.basketId, newItem);
+      await _dbService.addItemToBasket(widget.basket.id, newItem);
       Navigator.pop(context);
     }
   }

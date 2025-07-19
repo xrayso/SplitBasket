@@ -61,11 +61,8 @@ class _MainScreenState extends State<MainScreen> {
       }
     });
     String memberToken = "";
-    if (Platform.isAndroid) {
-      memberToken = await FirebaseMessaging.instance.getToken() ?? "";
-    }else if (Platform.isIOS){
-      memberToken = await FirebaseMessaging.instance.getAPNSToken() ?? "";
-    }
+
+    memberToken = await FirebaseMessaging.instance.getToken() ?? "";
     _dbService.setToken(_authService.currentUser!.uid, memberToken);
   }
 

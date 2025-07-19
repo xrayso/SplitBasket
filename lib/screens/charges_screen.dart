@@ -1,12 +1,15 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:split_basket/models/aggregated_resolution_request.dart';
+import 'package:split_basket/services/notification_service.dart';
+import '../models/user.dart';
 import 'charges_detail_screen.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/charges.dart';
 import '../models/aggregated_charge.dart';
 import 'package:badges/badges.dart' as badges;
-
 
 class ChargesScreen extends StatefulWidget {
   const ChargesScreen({super.key});
@@ -15,8 +18,8 @@ class ChargesScreen extends StatefulWidget {
   _ChargesScreenState createState() => _ChargesScreenState();
 }
 
-
-class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProviderStateMixin{
+class _ChargesScreenState extends State<ChargesScreen>
+    with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
 
@@ -34,7 +37,6 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
     super.dispose();
   }
 
-
   void _resolveAllCharges(String otherUserId) async {
     final currentUserId = _authService.currentUser!.uid;
     await _dbService.resolveAllCharges(currentUserId, otherUserId);
@@ -51,7 +53,7 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Resolution request sent.')),
       );
-    }catch (e){
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Resolution request sent.')),
       );
@@ -71,7 +73,6 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
             stream: _dbService.getPendingRequestCount(currentUserId),
             builder: (context, snapshot) {
               int pendingCount = snapshot.data ?? 0;
-
               return TabBar(
                 controller: _tabController,
                 tabs: [
@@ -88,8 +89,11 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
                               pendingCount > 9 ? '9+' : pendingCount.toString(),
                               style: TextStyle(color: Colors.white, fontSize: 10),
                             ),
-                            position: badges.BadgePosition.topEnd(top: -12, end: -20),
-                            badgeColor: Colors.red,
+                            position:
+                            badges.BadgePosition.topEnd(top: -12, end: -20),
+                            badgeStyle: badges.BadgeStyle(
+                                badgeColor: Colors.red
+                            ),
                             child: SizedBox(width: 0, height: 0),
                           ),
                       ],
@@ -128,7 +132,6 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
           }
           final charges = snapshot.data!;
 
-
           return ListView.builder(
             itemCount: charges.length,
             itemBuilder: (context, index) {
@@ -142,9 +145,9 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
               if (isPayee) {
                 tileColor = Colors.green[100]; // User is payee (owed money)
               } else {
-                tileColor = Colors.red[100]; // User is payer (owes money)
+                tileColor = Colors.red[100];   // User is payer (owes money)
               }
-              if (netAmount == 0){
+              if (netAmount == 0) {
                 tileColor = Colors.orange[200];
               }
 
@@ -161,28 +164,41 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
                   return ListTile(
                     tileColor: tileColor,
                     title: Text(userName),
-                    subtitle: Text(isPayee
-                        ? '$userName owes you \$${amount.toStringAsFixed(2)}'
-                        : 'You owe \$${amount.toStringAsFixed(2)}'),
+                    subtitle: Text(
+                      isPayee
+                          ? '$userName owes you \$${amount.toStringAsFixed(2)}'
+                          : 'You owe \$${amount.toStringAsFixed(2)}',
+                    ),
                     trailing: isPayee
-                        ? ElevatedButton(
-                      onPressed: () => _resolveAllCharges(otherUserId),
-                      child: Text('Resolve All'),
+                        ? Row(
+                      mainAxisSize: MainAxisSize.min, // <-- key
+                      children: [
+                        ElevatedButton(
+                          onPressed: () => sendReminder(otherUserId, "\$${amount.toStringAsFixed(2)}"),
+                          child: Text("Remind"),
+                        ),
+                        SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () => _resolveAllCharges(otherUserId),
+                          child: Text('Resolve All'),
+                        ),
+                      ],
                     )
                         : ElevatedButton(
-                      onPressed: isRequested ? null : () => _requestResolutionForAllCharges(otherUserId),
+                      onPressed: isRequested
+                          ? null
+                          : () => _requestResolutionForAllCharges(otherUserId),
                       child: Text(isRequested ? 'Requested' : 'Resolve Request'),
                     ),
                     onTap: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) =>
-                              ChargesDetailScreen(
-                                otherUserId: otherUserId,
-                                userName: userName,
-                                currentUserId: currentUserId,
-                              ),
+                          builder: (context) => ChargesDetailScreen(
+                            otherUserId: otherUserId,
+                            userName: userName,
+                            currentUserId: currentUserId,
+                          ),
                         ),
                       );
                     },
@@ -195,6 +211,7 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
       ),
     );
   }
+
   Widget _buildPendingRequests(String currentUserId) {
     return StreamBuilder<List<AggregatedResolutionRequest>>(
       stream: _dbService.getUniquePendingResolutionRequests(currentUserId),
@@ -206,7 +223,6 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
           return Center(child: Text('No pending requests.'));
         }
 
-        // This is now a list of aggregated requests, each from a different user
         final requests = snapshot.data!;
 
         return ListView.builder(
@@ -216,7 +232,6 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
             String requesterName = "";
             return ListTile(
               tileColor: Colors.green[100],
-              // Look up the requester's username
               title: FutureBuilder<String>(
                 future: _dbService.getUserNameById(aggregatedRequest.requestedBy),
                 builder: (context, userSnapshot) {
@@ -230,15 +245,13 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
                   }
                 },
               ),
-              // Show the total aggregated amount
               subtitle: Text(
-                  "Amount Requested: \$"
-                      "${aggregatedRequest.totalAmountRequested.toStringAsFixed(2)}"
+                "Amount Requested: \$"
+                    "${aggregatedRequest.totalAmountRequested.toStringAsFixed(2)}",
               ),
               trailing: Row(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize: MainAxisSize.min, // <-- key
                 children: [
-                  // Accept all requests from this user
                   ElevatedButton(
                     onPressed: () => _acceptAllRequests(
                       currentUserId,
@@ -247,7 +260,6 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
                     child: Text('Accept'),
                   ),
                   SizedBox(width: 8),
-                  // Decline all requests from this user
                   ElevatedButton(
                     onPressed: () => _declineAllRequests(
                       currentUserId,
@@ -264,12 +276,11 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) =>
-                        ChargesDetailScreen(
-                          otherUserId: requests[index].requestedBy,
-                          userName: requesterName,
-                          currentUserId: currentUserId,
-                        ),
+                    builder: (context) => ChargesDetailScreen(
+                      otherUserId: requests[index].requestedBy,
+                      userName: requesterName,
+                      currentUserId: currentUserId,
+                    ),
                   ),
                 );
               },
@@ -279,6 +290,7 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
       },
     );
   }
+
   void _acceptRequest(Charge charge) async {
     await _dbService.acceptChargeResolution(charge.id);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -287,15 +299,73 @@ class _ChargesScreenState extends State<ChargesScreen> with SingleTickerProvider
   }
 
   Future<void> _acceptAllRequests(String currentUserId, AggregatedResolutionRequest request) async {
-    // "Accept" means to resolve all requested charges where
-    // payer == request.requestedBy, payee == currentUserId
-    await _dbService.resolveCharges(currentUserId, request);
+    await _dbService.resolveCharges(currentUserId, request.requestedBy);
   }
 
-  Future<void> _declineAllRequests(String currentUserId, AggregatedResolutionRequest request) async {
+  Future<void> _declineAllRequests(
+      String currentUserId, AggregatedResolutionRequest request) async {
     await _dbService.declineRequests(currentUserId, request);
   }
 
+  void sendReminder(String otherUserId, String costAsFixedString) async {
+    String myUserName = await _dbService.getUserNameById(_authService.currentUser!.uid);
+    User otherUser = await _dbService.getUserById(otherUserId);
+
+      List<String> reminderTitles = [
+        "You Owe Me, Bro!",
+        "Don’t Make Me Chase You!",
+        "Debt? What Debt? Oh, THIS Debt!",
+        "The IRS Would Be Faster…",
+        "Pay Up Before I Turn This Into a Netflix Special",
+        "Still Waiting… Like a Fool!",
+        "Oh, So We’re Just NOT Paying Anymore?",
+        "You Got Time to Scroll, But Not to Pay?",
+        "Breaking News: You Still Owe Me Money!",
+        "A Nobel Prize for Paying Me Back? Maybe.",
+        "I’m Just a Simple Person… Who Wants Their Money",
+        "This Debt is Old Enough to Rent a Car",
+        "Even Politicians Pay Their Debts… Sometimes",
+        "An Economic Crisis? No, Just You Owing Me",
+        "Are You Not Embarrassed?!",
+        "The Money’s Not Gonna Pay Itself!",
+        "Breaking News: You Still Haven’t Paid",
+        "Is My Money in Witness Protection?",
+        "This Isn’t a Joke… But Kinda Is",
+        "Financial Comedy at Its Finest"
+      ];
+
+      List<String> reminderBodies = [
+        "Hey ${otherUser.userName}, I checked my wallet—it’s still light. Why? ‘Cause YOU still owe $costAsFixedString! Pay up before I start charging you in emotional distress! – $myUserName",
+        "${otherUser.userName}, I ain't about to turn into a bounty hunter, but you still owe $costAsFixedString. Don’t make me pull out the receipts! Just pay it before I start telling stories about you! – $myUserName",
+        "Hey ${otherUser.userName}, I don’t mean to bring up bad memories, but remember that $costAsFixedString? Still a thing. Still unpaid. Let’s change that before I start sending polite threats. – $myUserName",
+        "Hey ${otherUser.userName}, you still owe $costAsFixedString. I’d report you to collections, but they’d probably just laugh. Save yourself—just pay. – $myUserName",
+        "Yo ${otherUser.userName}, you still owe $costAsFixedString. I don’t wanna talk about this on stage… but I *will.* Pay up before you end up in my next comedy set! – $myUserName",
+        "${otherUser.userName}, do I look like a bank? A charity? No? Then why is $costAsFixedString still outstanding? Pay up before I start charging you interest… in public shame. – $myUserName",
+        "Hey ${otherUser.userName}, I was just wondering—did you declare bankruptcy? Are you on a secret government watchlist? No? THEN WHY IS MY $costAsFixedString STILL MISSING? Pay up. – $myUserName",
+        "${otherUser.userName}, I see you liking posts, watching Netflix, living your best life. Meanwhile, my $costAsFixedString is out here GONE. Let’s fix that. – $myUserName",
+        "Hey ${otherUser.userName}, imagine a world where $costAsFixedString magically paid itself. That world doesn’t exist. So… do your part. – $myUserName",
+        "${otherUser.userName}, if you finally send that $costAsFixedString, I’ll nominate you for the 'Most Decent Human of the Year' award. Otherwise, I’m calling David Attenborough to narrate your downfall. – $myUserName",
+        "Hey ${otherUser.userName}, I don’t ask for much. Just $costAsFixedString. That’s it! Not an arm, not a leg, just… the money you OWE ME. – $myUserName",
+        "Hey ${otherUser.userName}, your unpaid $costAsFixedString has been around so long, it’s practically family now. But I’m not in the adoption business. Pay up. – $myUserName",
+        "${otherUser.userName}, if corrupt politicians can pretend to pay their debts, surely you can settle this $costAsFixedString? Make the responsible choice… for once. – $myUserName",
+        "Hey ${otherUser.userName}, I checked the stock market today. Nothing crashed. So… what’s stopping you from paying that $costAsFixedString? – $myUserName",
+        "${otherUser.userName}, still no $costAsFixedString? You walking around like you’re debt-free? This is EMBARRASSING! Pay up before I send your name to the debt hall of fame. – $myUserName",
+        "Hey ${otherUser.userName}, that $costAsFixedString is just sitting there, untouched. Lonely. Crying. How ‘bout you send it home? – $myUserName",
+        "Hey ${otherUser.userName}, I was just thinking… my $costAsFixedString must be starring in a missing person’s documentary by now. Time to bring it back. – $myUserName",
+        "Hey ${otherUser.userName}, I haven’t seen my $costAsFixedString in ages. I hope it’s doing well… but I’d rather have it back. Let’s make that happen. – $myUserName",
+        "Hey ${otherUser.userName}, I wrote a song about you paying me $costAsFixedString. Just kidding. But I *will* if you don’t pay soon. – $myUserName",
+        "Hey ${otherUser.userName}, guess what’s funnier than me waiting on $costAsFixedString? Nothing. That’s the joke. Pay up. – $myUserName"
+      ];
+    int randomIndex = Random().nextInt(reminderTitles.length);
+    sendNotification(
+        reminderTitles[randomIndex],
+        reminderBodies[randomIndex],
+        [otherUser.token]
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Reminder sent to ${otherUser.userName}')),
+    );
+  }
 
   void _declineRequest(Charge charge) async {
     await _dbService.declineChargeResolution(charge.id);

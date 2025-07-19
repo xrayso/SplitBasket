@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/basket.dart';
 import '../models/grocery_item.dart';
 import '../screens/edit_item_screen.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
-// import 'edit_item_screen.dart'; // Uncomment if you have an EditItemScreen
 
 class GroceryItemTile extends StatefulWidget {
   final GroceryItem item;
@@ -13,11 +11,11 @@ class GroceryItemTile extends StatefulWidget {
   final bool isFinalized;
 
   const GroceryItemTile({
-    Key? key,
+    super.key,
     required this.item,
     required this.basketId,
     this.isFinalized = false,
-  }) : super(key: key);
+  });
 
   @override
   _GroceryItemTileState createState() => _GroceryItemTileState();
@@ -25,10 +23,11 @@ class GroceryItemTile extends StatefulWidget {
 
 class _GroceryItemTileState extends State<GroceryItemTile> {
   final _dbService = DatabaseService();
-
   final _authService = AuthService();
 
   late Future<Map<bool, List<String>>> _optedInSummaryFuture;
+  late Future<String> _paidByNameFuture;
+
   late Map<bool, List<String>> currentOptedIn;
 
   double get _currentUserShare {
@@ -42,13 +41,14 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
     return (userData['share'] ?? -1.0).toDouble();
   }
 
-
   bool get _isOptedIn => _currentUserShare > 0.0;
+
   @override
   void initState() {
     super.initState();
     _optedInSummaryFuture = _buildOptedInSummary();
-    currentOptedIn = {true: [], false : []};
+    currentOptedIn = {true: [], false: []};
+    _paidByNameFuture = _dbService.getUserNameById(widget.item.paidBy);
   }
 
   @override
@@ -57,6 +57,11 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
     if (widget.item.userShares != oldWidget.item.userShares) {
       setState(() {
         _optedInSummaryFuture = _buildOptedInSummary();
+      });
+    }
+    if (widget.item.paidBy != oldWidget.item.paidBy) {
+      setState(() {
+        _paidByNameFuture = _dbService.getUserNameById(widget.item.paidBy);
       });
     }
   }
@@ -68,13 +73,14 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
         .toList();
 
     if (optedInEntries.isEmpty) {
-      return  {true: [], false : []};
+      return {true: [], false: []};
     }
 
     // Otherwise, fetch each name
-    Map<bool, List<String>> results = {true: [], false : []};
+    Map<bool, List<String>> results = {true: [], false: []};
     Basket basket = await _dbService.getBasketById(widget.basketId);
     bool everyoneEqual = optedInEntries.length == basket.memberIds.length;
+
     for (var entry in optedInEntries) {
       String uid = entry.key;
       double share = (entry.value['share'] ?? 0.0).toDouble();
@@ -85,53 +91,58 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
       final percent = (share * 100).toStringAsFixed(0);
       results[isManual]?.add('$userName($percent%)');
     }
-    if (everyoneEqual){
+    if (everyoneEqual) {
       return {true: ["EveryoneEqual"], false: ["EveryoneEqual"]};
     }
     return results;
   }
 
+  /// Here we fix the black text by choosing white in dark mode or black in light mode.
   RichText _resultsToRichText(Map<bool, List<String>> results) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     if (results[true]!.isEmpty && results[false]!.isEmpty) {
       return RichText(
-          text: TextSpan(
-              style: DefaultTextStyle
-                  .of(context)
-                  .style,
-              children: <TextSpan>[
-                const TextSpan(
-                    text: "No one opted in",
-                    style: TextStyle(color: Colors.deepOrange)
-                )
-              ]
-          )
+        text: TextSpan(
+          style: DefaultTextStyle.of(context).style,
+          children: const <TextSpan>[
+            TextSpan(
+              text: "No one opted in",
+              style: TextStyle(color: Colors.deepOrange),
+            )
+          ],
+        ),
       );
     }
     if (results[true]!.isNotEmpty && results[false]!.isNotEmpty) {
       if (results[true]?.first == "EveryoneEqual" &&
           results[false]?.first == "EveryoneEqual") {
         return RichText(
-            text: TextSpan(
-                style: DefaultTextStyle
-                    .of(context)
-                    .style,
-                children: <TextSpan>[
-                  const TextSpan(
-                      text: "Everyone Equally",
-                      style: TextStyle(color: Colors.green)
-                  )
-                ]
-            )
+          text: TextSpan(
+            style: DefaultTextStyle.of(context).style,
+            children: const <TextSpan>[
+              TextSpan(
+                text: "Everyone Equally",
+                style: TextStyle(color: Colors.green),
+              ),
+            ],
+          ),
         );
       }
     }
+
     final manualNames = results[true] ?? [];
     final autoNames = results[false] ?? [];
 
     List<TextSpan> textSpans = [];
 
-    // 1. Add the manually opted-in names in red
+    // 1. Add the manually opted-in names in blue
     for (int i = 0; i < manualNames.length; i++) {
+      textSpans.add(
+        const TextSpan(
+          text: "", // Placeholder - we'll insert manualNames[i] next
+        ),
+      );
       textSpans.add(
         TextSpan(
           text: manualNames[i],
@@ -148,12 +159,13 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
       textSpans.add(const TextSpan(text: ", "));
     }
 
-    // 2. Add automatically opted-in names in black
+    // 2. Add automatically opted-in names. Previously color was Colors.black;
+    //    we switch to white if dark mode is active, else black.
     for (int i = 0; i < autoNames.length; i++) {
       textSpans.add(
         TextSpan(
           text: autoNames[i],
-          style: const TextStyle(color: Colors.black),
+          style: TextStyle(color: isDark ? Colors.white : Colors.black),
         ),
       );
       if (i < autoNames.length - 1) {
@@ -164,9 +176,7 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
     // Wrap everything in a RichText with a prefix if desired
     return RichText(
       text: TextSpan(
-        style: DefaultTextStyle
-            .of(context)
-            .style,
+        style: DefaultTextStyle.of(context).style,
         children: <TextSpan>[
           const TextSpan(
             text: "Opted in: ",
@@ -200,7 +210,6 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
               return const Text('Opted in: Error');
             } else {
               currentOptedIn = snapshot.data!;
-
               return _resultsToRichText(currentOptedIn);
             }
           },
@@ -208,6 +217,40 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            FutureBuilder<String>(
+              future: _paidByNameFuture, // your future that fetches the payer's name
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  );
+                } else if (snapshot.hasError || !snapshot.hasData) {
+                  return const Text("Unknown");
+                } else {
+                  final payerName = snapshot.data!;
+                  return Chip(
+                    avatar: const CircleAvatar(
+                      backgroundColor: Colors.purpleAccent,
+                      child: Icon(
+                        Icons.paid,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ),
+                    label: Text(
+                      payerName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.purple,
+                      ),
+                    ),
+                    backgroundColor: Colors.purple.withOpacity(0.1),
+                  );
+                }
+              },
+            ),
             if (!widget.isFinalized)
               IconButton(
                 icon: Icon(
@@ -281,23 +324,26 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Current share: ${(currentShare * 100).toStringAsFixed(0)}%'),
+                Text(
+                  'Current share: ${(currentShare * 100).toStringAsFixed(0)}%',
+                ),
                 Slider(
                   value: currentShare,
                   min: 0.0,
                   max: 1.0,
                   divisions: 20,
-                  label: '${(currentShare * 100).toStringAsFixed(0)}%',
+                  label: '${(currentShare * 100).toStringAsFixed(2)}%',
                   onChanged: (val) {
                     setDialogState(() {
                       currentShare = val;
-                      textCtrl.text = (currentShare * 100).toStringAsFixed(0);
+                      textCtrl.text = (currentShare * 100).toStringAsFixed(2);
                     });
                   },
                 ),
                 TextField(
                   controller: textCtrl,
-                  keyboardType: TextInputType.number,
+                  keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
                     labelText: 'Enter share in percentage',
                   ),
@@ -306,7 +352,7 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
                     if (parsed != null) {
                       final clampVal = parsed.clamp(0, 100);
                       setDialogState(() {
-                        currentShare = clampVal / 100;
+                        currentShare = clampVal / 100.0;
                       });
                     }
                   },
@@ -344,14 +390,13 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
     );
   }
 
-  /// Example navigation to an EditItemScreen (if you have one):
-  void _editItem() {
-    // Replace with actual edit screen if needed
+  void _editItem() async {
+    Basket basket = await _dbService.getBasketById(widget.basketId);
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => EditItemScreen(
-          basketId: widget.basketId,
+          basket: basket,
           item: widget.item,
         ),
       ),

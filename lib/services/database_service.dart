@@ -245,6 +245,25 @@ class DatabaseService {
         snapshot.docs.map((doc) => Basket.fromMap(doc.data())).toList());
   }
 
+  Future<List<user_dart.User>> getBasketUsers(String basketId) async{
+    Basket basket = await getBasketById(basketId);
+    List<user_dart.User> basketUsers = [];
+    for (var basketMemberId in basket.memberIds){
+      user_dart.User user = await getUserById(basketMemberId);
+      basketUsers.add(user);
+    }
+    return basketUsers;
+  }
+
+  Future<double> calculateTotalBasketPrice(String basketId) async{
+    Basket basket = await getBasketById(basketId);
+    double cost = 0;
+    for (var item in basket.items) {
+      cost += item.quantity * item.price;
+    }
+    return cost;
+  }
+
   Future<void> finalizeBasket(Basket basket, double taxPercent) async {
     List<Charge> charges = _calculateCharges(basket, taxPercent);
     try {
@@ -264,6 +283,7 @@ class DatabaseService {
         quantity: 3,
         addedBy: "addedBy",
         userShares: {},
+        paidBy: "error",
       );
       await addItemToBasket(basket.id, item);
     }
@@ -291,22 +311,24 @@ class DatabaseService {
 
   // Updated to handle userShares as { uid: {share: double, isManual: bool} }
   List<Charge> _calculateCharges(Basket basket, double taxPercent) {
-    final hostId = basket.hostId;
-    Map<String, double> totalUserCosts = {};
+    Map<String, Map<String, double>> totalUserCosts = {};
     List<Charge> charges = [];
     for (GroceryItem item in basket.items) {
       double totalItemCost = item.price * item.quantity;
       item.userShares.forEach((userId, shareData) {
-        if (userId == hostId) return;
+        if (userId == item.paidBy) return;
         double fraction = (shareData['share'] ?? 0.0).toDouble();
         double userCost = totalItemCost * fraction;
-        totalUserCosts[userId] = (totalUserCosts[userId] ?? 0) + userCost;
+        if (totalUserCosts[userId] == null){
+          totalUserCosts[userId] = {};
+        }
+        totalUserCosts[userId]?[item.paidBy] = (totalUserCosts[userId]?[item.paidBy] ?? 0) + userCost;
         if (userCost > 0) {
           charges.add(
             Charge(
               id: Uuid().v4(),
               payerId: userId,
-              payeeId: hostId,
+              payeeId: item.paidBy,
               amount: userCost,
               item: item,
               date: DateTime.now(),
@@ -316,20 +338,28 @@ class DatabaseService {
         }
       });
     }
-    for (var entry in  totalUserCosts.entries){
-      if (entry.value > 0) {
-        double taxPrice = entry.value * taxPercent;
-        charges.add(
-          Charge(
-            id: Uuid().v4(),
-            payerId: entry.key,
-            payeeId: hostId,
-            amount: taxPrice,
-            item: GroceryItem(id: Uuid().v4(), name: "Tax", price: taxPercent, quantity: 1, addedBy: hostId, userShares: {}),
-            date: DateTime.now(),
-            isTax: true
-          ),
-        );
+    for (var payerInfo in totalUserCosts.entries){
+      for (var payeeInfo in payerInfo.value.entries) {
+        if (payeeInfo.value * taxPercent > 0) {
+          double taxPrice = payeeInfo.value * taxPercent;
+          charges.add(
+            Charge(
+                id: Uuid().v4(),
+                payerId: payerInfo.key,
+                payeeId: payeeInfo.key,
+                amount: taxPrice,
+                item: GroceryItem(id: Uuid().v4(),
+                    name: "Tax",
+                    price: taxPercent,
+                    quantity: 1,
+                    addedBy: payeeInfo.key,
+                    userShares: {},
+                    paidBy: "me"),
+                date: DateTime.now(),
+                isTax: true
+            ),
+          );
+        }
       }
     }
     return charges;
@@ -556,38 +586,43 @@ class DatabaseService {
   }
 
 
-  Future<void> resolveCharges(String currentUserId, AggregatedResolutionRequest request) async{
+  Future<void> resolveCharges(String payeeId, String payerId) async{
       QuerySnapshot snapshot = await _db
           .collection('charges')
-          .where('payeeId', isEqualTo: currentUserId)
-          .where('payerId', isEqualTo: request.requestedBy)
+          .where('payeeId', isEqualTo: payeeId)
+          .where('payerId', isEqualTo: payerId)
           .get();
       WriteBatch batch = _db.batch();
       for (var doc in snapshot.docs) {
-        if (request.chargeIds.contains(doc.id)) {
           batch.delete(doc.reference);
-        }
       }
       await batch.commit();
 
       String title = "Charges resolved!";
-      String name = await getUserNameById(currentUserId);
+      String name = await getUserNameById(payeeId);
       String body = "$name resolved your charges!";
-      String token = await getUserTokenById(request.requestedBy);
+      String token = await getUserTokenById(payerId);
       sendNotification(title, body, [token]);
   }
 
-  Future<void> resolveAllCharges(String currentUserId, String otherUserId) async {
+  Future<void> resolveChargesBetweenUsers(String payer, String payee) async{
     QuerySnapshot snapshot = await _db
         .collection('charges')
-        .where('payeeId', isEqualTo: currentUserId)
-        .where('payerId', isEqualTo: otherUserId)
+        .where('payeeId', isEqualTo: payee)
+        .where('payerId', isEqualTo: payer)
         .get();
     WriteBatch batch = _db.batch();
+    print("$payer payee: $payee");
     for (var doc in snapshot.docs) {
       batch.delete(doc.reference);
     }
     await batch.commit();
+  }
+
+  Future<void> resolveAllCharges(String currentUserId, String otherUserId) async {
+
+    await resolveChargesBetweenUsers(currentUserId, otherUserId);
+    await resolveChargesBetweenUsers(otherUserId, currentUserId);
 
     String title = "All Charges resolved!";
     String name = await getUserNameById(currentUserId);

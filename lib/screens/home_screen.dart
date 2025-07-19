@@ -82,7 +82,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         );
                       },
                       child: badges.Badge(
-                        badgeColor: Colors.blue,
+                        badgeStyle: badges.BadgeStyle(
+                          badgeColor: Colors.blue
+                        ),
                         showBadge: invitationCount > 0,
                         position:
                         badges.BadgePosition.topEnd(top: 23, end: 145),

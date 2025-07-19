@@ -17,7 +17,7 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
   final AuthService _authService = AuthService();
   List<User> _friends = [];
   final List<String> _selectedFriendIds = [];
-
+  bool _loading = true;
   @override
   void initState() {
     super.initState();
@@ -33,6 +33,7 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
       User friend = await _dbService.getUserById(friendId);
       friends.add(friend);
     }
+    _loading = false;
 
     setState(() {
       _friends = friends;
@@ -48,7 +49,11 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
         appBar: AppBar(title: Text('Invite Friends')),
-        body: Column(
+        body: _loading ?
+            Center(
+              child: CircularProgressIndicator(),
+            )
+            : Column(
           children: [
             Expanded(
               child: ListView(
