@@ -265,7 +265,7 @@ class _BasketScreenState extends State<BasketScreen> {
               children: [
                 TextField(
                   controller: textCtrl,
-                  keyboardType: TextInputType.number,
+                  keyboardType: TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
                     labelText: 'Enter Tax Cost (\$)',
                   ),
@@ -292,7 +292,6 @@ class _BasketScreenState extends State<BasketScreen> {
             ],
           ),
     );
-    print(confirm);
     if (confirm) await _dbService.finalizeBasket(basket, taxPercent);
   }
 

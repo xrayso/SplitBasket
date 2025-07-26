@@ -146,8 +146,25 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
       fit: StackFit.expand,
       children: [
         if (_controller != null) CameraPreview(_controller!),
+
+        /* ← BACK */
         Positioned(
-          bottom: 40,
+          top: 8,
+          left: 8,
+          child: SafeArea(
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white, size: 30),
+              onPressed: () {
+                _exitImmersive();
+                Navigator.pop(context);
+              },
+            ),
+          ),
+        ),
+
+        /* Shutter */
+        Positioned(
+          bottom: 20,
           left: 0,
           right: 0,
           child: Center(
@@ -163,8 +180,8 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
                 child: const Align(
                   alignment: Alignment.center,
                   child: SizedBox(
-                    width: 60,
-                    height: 60,
+                    width: 65,
+                    height: 65,
                     child: DecoratedBox(
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
@@ -182,6 +199,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
   );
 
   /* Polished preview UI */
+  /* Polished preview UI with help button */
   Widget _previewView() => Scaffold(
     backgroundColor: Colors.black,
     appBar: AppBar(
@@ -189,6 +207,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
       elevation: 0,
       leading: IconButton(
         icon: const Icon(Icons.close),
+        color: Colors.red,
         onPressed: () {
           setState(() {
             _captured = null;
@@ -197,8 +216,29 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
         },
       ),
       actions: [
+        /* HELP */
+        IconButton(
+          icon: const Icon(Icons.help_outline),
+          color: Colors.blue,
+          tooltip: 'How to take a good photo',
+          onPressed: () {
+            showDialog(
+              context: context,
+              builder: (_) => const AlertDialog(
+                title: Text('Photo quality tips'),
+                content: Text(
+                  'Make sure the receipt is well‑lit, flat, and fills most of the frame. '
+                      'Blurred or dim shots may not be processed correctly.',
+                ),
+              ),
+            );
+          },
+        ),
+
+        /* SEND */
         IconButton(
           icon: const Icon(Icons.check),
+          color: Colors.green,
           onPressed: _send,
         ),
       ],

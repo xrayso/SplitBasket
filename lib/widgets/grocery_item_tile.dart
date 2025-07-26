@@ -4,6 +4,7 @@ import '../models/grocery_item.dart';
 import '../screens/edit_item_screen.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import 'colour-utility.dart';
 
 class GroceryItemTile extends StatefulWidget {
   final GroceryItem item;
@@ -191,9 +192,16 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ListTile(
-        onTap: _editItem, // Tap the tile to edit the entire item
+        dense: true,                         // ⬅ shrinks tile’s baseline height
+        visualDensity: const VisualDensity(
+          horizontal: 0,
+          vertical: -4,                      // ⬅ pulls title/subtitle closer together
+        ),
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        onTap: _editItem,
         title: Text(
           '${widget.item.name} \$${(widget.item.price * widget.item.quantity).toStringAsFixed(2)}',
           style: TextStyle(
@@ -214,63 +222,81 @@ class _GroceryItemTileState extends State<GroceryItemTile> {
             }
           },
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FutureBuilder<String>(
-              future: _paidByNameFuture, // your future that fetches the payer's name
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  );
-                } else if (snapshot.hasError || !snapshot.hasData) {
-                  return const Text("Unknown");
-                } else {
-                  String payerName = snapshot.data!;
-                  payerName = "sidfsdfsdbfsjdhfsdf";
-                  final shortenedName = payerName.length > 7 ? "${payerName.substring(0, 7)}..." : payerName;
-                  return Chip(
-                    avatar: const CircleAvatar(
-                      backgroundColor: Colors.purpleAccent,
-                      child: Icon(
-                        Icons.paid,
-                        color: Colors.white,
-                        size: 16,
+
+        // ---------- HERE IS THE IMPORTANT PART ----------
+        trailing: FittedBox(                    // ⬅ keeps row inside trailing slot
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FutureBuilder<String>(
+                future: _paidByNameFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    );
+                  }
+                  final fullName = snapshot.data ?? '   ';
+                  final initials = fullName                       // e.g. “Anna Lee” → “AL”
+                      .trim()
+                      .split(RegExp(r'\s+'))
+                      .where((p) => p.isNotEmpty)
+                      .take(2)
+                      .map((p) => p[0])
+                      .join()
+                      .toUpperCase();
+                  final theme = Theme.of(context).brightness;
+                  final baseColour   = colorForName(fullName);
+                  final labelColour  = onColor(baseColour, theme);
+                  final chipBg       = baseColour.withOpacity(0.16);      // pastel
+                  final avatarBg     = baseColour.withOpacity(0.80);
+                  return Tooltip(
+                    message: fullName,
+                    child: Chip(
+                      // Avatar shows the paid icon on a solid colour
+                      avatar: CircleAvatar(
+                        backgroundColor: avatarBg,
+                        radius: 10,
+                        child: const Icon(Icons.paid, size: 12, color: Colors.white70),
                       ),
-                    ),
-                    label: Text(
-                      shortenedName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.purple,
+
+                      label: Text(
+                        initials,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: labelColour,            // never black or white
+                        ),
                       ),
+                      backgroundColor: chipBg,
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
                     ),
-                    backgroundColor: Colors.purple.withOpacity(0.1),
                   );
-                }
-              },
-            ),
-            if (!widget.isFinalized)
-              IconButton(
-                icon: Icon(
-                  _isOptedIn
+                },
+              ),
+              if (!widget.isFinalized) ...[
+                IconButton(
+                  icon: Icon(_isOptedIn
                       ? Icons.check_box
-                      : Icons.check_box_outline_blank,
+                      : Icons.check_box_outline_blank),
                   color: _isOptedIn ? Colors.green : null,
+                  visualDensity: VisualDensity.compact,
+                  tooltip: _isOptedIn ? 'Opt out' : 'Opt in',
+                  onPressed: _toggleOptIn,
                 ),
-                tooltip: _isOptedIn ? 'Opt out' : 'Opt in',
-                onPressed: _toggleOptIn,
-              ),
-            if (!widget.isFinalized)
-              IconButton(
-                icon: const Icon(Icons.tune),
-                tooltip: 'Set percentage',
-                onPressed: _showShareDialog,
-              ),
-          ],
+                IconButton(
+                  icon: const Icon(Icons.tune),
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Set percentage',
+                  onPressed: _showShareDialog,
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

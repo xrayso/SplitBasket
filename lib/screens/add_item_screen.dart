@@ -31,6 +31,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
 
   @override
   void initState() {
+    _paidBy = AuthService().currentUser!.uid;
     super.initState();
     getBasketNames();
   }
@@ -110,7 +111,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
               ),
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(labelText: 'Paid By'),
-                value: widget.basket.hostId, // Current selection
+                value: _paidBy, // Current selection
                 items: widget.basket.memberIds.map((userIds) {
                   return DropdownMenuItem<String>(
                     value: userIds,

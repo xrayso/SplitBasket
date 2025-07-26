@@ -89,7 +89,7 @@ class _ExpenseSummaryScreenState extends State<ExpenseSummaryScreen> {
       ),
       body: isLoading
           ? Center(child: CircularProgressIndicator())
-          : balances.isEmpty
+          : totalBasketPrice == 0
           ? Center(child: Text('No expenses to show.'))
           : Column(
         children: [
