@@ -8,10 +8,12 @@ import 'package:uuid/uuid.dart';
 import '../models/basket.dart';
 import '../models/grocery_item.dart';
 import '../services/auth_service.dart';
+import '../services/costco_receipts.dart';
 import '../services/database_service.dart';
 import '../widgets/grocery_item_tile.dart';
 import 'add_item_screen.dart';
 import 'basket_members_screen.dart';
+import 'costco_import_screen.dart';
 import 'expense_summary_screen.dart';
 import 'main_screen.dart';
 import 'scan_receipt_screen.dart';          // ⬅ NEW IMPORT
@@ -166,35 +168,42 @@ class _BasketScreenState extends State<BasketScreen> {
                       .collection('receipts/$receiptId/items')
                       .get();
 
-                  final result = await _showReceiptPreviewDialog(
+                  await _importReceiptItems(
                     ctx,
-                    snap.docs,
-                    basket.memberIds,
-                    _authService.currentUser!.uid,
-                  );
-
-                  if (result == null) return; // user cancelled
-
-                  for (final it in result.items.where((i) => i.include)) {
-                    await _dbService.addItemToBasket(
-                      basket.id,
-                      GroceryItem(
-                        id: Uuid().v4(),
-                        name: it.description,
-                        price: it.total / it.qty,
-                        quantity: it.qty,
-                        addedBy: _authService.currentUser!.uid,
-                        paidBy: result.selectedPayer,
-                        userShares: {},
-                      ),
-                    );
-                  }
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(
-                      content: Text('Added ${result.items.where((i)=>i.include).length} items!'),
-                    ),
+                    basket,
+                    snap.docs.map((d) => _ReceiptPreviewItem(
+                      description: d['description'] as String,
+                      qty: (d['qty'] as num).toInt(),
+                      total: (d['total'] as num).toDouble(),
+                    )).toList(),
                   );
                 }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.store),
+              title: const Text('Import from Costco'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final receipt = await Navigator.push<CostcoReceipt>(
+                  ctx,
+                  MaterialPageRoute(builder: (_) => const CostcoImportScreen()),
+                );
+                if (receipt == null) return;
+
+                await _importReceiptItems(
+                  ctx,
+                  basket,
+                  receipt.items.map((i) => _ReceiptPreviewItem(
+                    description: i.description,
+                    qty: i.qty,
+                    total: i.total,
+                  )).toList(),
+                  note: receipt.taxes > 0
+                      ? 'Tax on this receipt: \$${receipt.taxes.toStringAsFixed(2)}. '
+                        'Enter it when you finalize the basket.'
+                      : null,
+                );
               },
             ),
           ],
@@ -315,22 +324,53 @@ class _BasketScreenState extends State<BasketScreen> {
     );
     if (confirm) await _dbService.deleteBasket(basket.id);
   }
+  /// Lets the user review receipt lines, then adds the ticked ones to the basket.
+  Future<void> _importReceiptItems(
+      BuildContext ctx,
+      Basket basket,
+      List<_ReceiptPreviewItem> items, {
+      String? note,
+      }) async {
+    final result = await _showReceiptPreviewDialog(
+      ctx,
+      items,
+      basket.memberIds,
+      _authService.currentUser!.uid,
+      note: note,
+    );
+
+    if (result == null) return; // user cancelled
+
+    for (final it in result.items.where((i) => i.include)) {
+      await _dbService.addItemToBasket(
+        basket.id,
+        GroceryItem(
+          id: Uuid().v4(),
+          name: it.description,
+          price: it.total / it.qty,
+          quantity: it.qty,
+          addedBy: _authService.currentUser!.uid,
+          paidBy: result.selectedPayer,
+          userShares: {},
+        ),
+      );
+    }
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        content: Text('Added ${result.items.where((i)=>i.include).length} items!'),
+      ),
+    );
+  }
+
   /// Shows the preview & returns null if cancelled,
   /// or a ReceiptPreviewResult with the edited items & payer.
   Future<ReceiptPreviewResult?> _showReceiptPreviewDialog(
       BuildContext context,
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+      List<_ReceiptPreviewItem> previewItems,
       List<String> possiblePayers,
-      String defaultPayer,
-      ) async {
-    // convert docs → UI items
-    final previewItems = docs.map((d) {
-      return _ReceiptPreviewItem(
-        description: d['description'] as String,
-        qty: (d['qty'] as num).toInt(),
-        total: (d['total'] as num).toDouble(),
-      );
-    }).toList();
+      String defaultPayer, {
+      String? note,
+      }) async {
     Map<String, String> userIdToName = {};
     for (String id in possiblePayers){
       userIdToName[id] = await _dbService.getUserNameById(id);
@@ -356,6 +396,10 @@ class _BasketScreenState extends State<BasketScreen> {
                       .toList(),
                   onChanged: (v) => setState(() => selectedPayer = v!),
                 ),
+                if (note != null) ...[
+                  const SizedBox(height: 8),
+                  Text(note, style: Theme.of(ctx).textTheme.bodySmall),
+                ],
                 const SizedBox(height: 12),
 
                 // Editable, toggleable list

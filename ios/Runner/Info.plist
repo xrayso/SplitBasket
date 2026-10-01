@@ -10,6 +10,8 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Split Basket</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Split Basket uses the camera to scan your grocery receipts.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

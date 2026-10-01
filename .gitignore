@@ -34,7 +34,6 @@ bin/
 build/
 
 # iOS related
-ios/Flutter/
 ios/Pods/
 ios/Runner.xcworkspace/
 ios/Runner.xcworkspace
