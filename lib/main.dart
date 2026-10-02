@@ -1,4 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -16,9 +20,19 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async{
   print('Received background message: ${message.toMap()}');
 }
 
+// Local testing: `flutter run --dart-define=USE_EMULATORS=true` talks to the
+// Firebase emulators (firebase.emulators.json) instead of the real project.
+const _useEmulators = bool.fromEnvironment('USE_EMULATORS');
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  if (_useEmulators) {
+    await FirebaseAuth.instance.useAuthEmulator('localhost', 9099);
+    FirebaseFirestore.instance.useFirestoreEmulator('localhost', 8080);
+    await FirebaseStorage.instance.useStorageEmulator('localhost', 9199);
+    FirebaseFunctions.instance.useFunctionsEmulator('localhost', 5001);
+  }
 
   await initializeNotifications();
   await setupNotificationChannels();

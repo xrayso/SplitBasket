@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
@@ -61,14 +63,31 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
 
   /* ---------------- CAMERA ---------------- */
   Future<void> _initCamera() async {
-    final cams = await availableCameras();
-    _controller = CameraController(
-      cams.first,
-      ResolutionPreset.max,
-      enableAudio: false,
-    );
-    await _controller!.initialize();
+    try {
+      final cams = await availableCameras();
+      if (cams.isEmpty) throw CameraException('none', 'No camera');
+      _controller = CameraController(
+        cams.first,
+        ResolutionPreset.max,
+        enableAudio: false,
+      );
+      await _controller!.initialize();
+    } catch (_) {
+      // No camera (e.g. the simulator) or no permission: offer Photos instead.
+      _controller = null;
+    }
     if (mounted) setState(() => _initializing = false);
+  }
+
+  /// A receipt photo taken earlier, or a screenshot of an e-receipt.
+  Future<void> _pickPhoto() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 92, // always hands back a JPEG
+    );
+    if (picked == null) return;
+    _exitImmersive();
+    setState(() => _captured = XFile(picked.path));
   }
 
   Future<void> _takePhoto() async {
@@ -92,7 +111,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
           children: [
             CircularProgressIndicator(),
             SizedBox(width: 16),
-            Flexible(child: Text("Uploading…")),
+            Flexible(child: Text("Reading your receipt…")),
           ],
         ),
       ),
@@ -105,25 +124,37 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
       final ref = FirebaseStorage.instance.ref("receipts/$uid/$fileName");
       final file = File(_captured!.path);
 
-      await ref.putFile(file);
+      await ref.putFile(file, SettableMetadata(contentType: "image/jpeg"));
 
-      // 3. Poll Firestore until CF writes its doc
-      final q = FirebaseFirestore.instance
+      // 3. Wait for the Cloud Function to write the parsed receipt
+      final snap = await FirebaseFirestore.instance
           .collection("receipts")
           .where("storagePath", isEqualTo: ref.fullPath)
-          .limit(1);
-
-      DocumentSnapshot? snap;
-      while (snap == null) {
-        await Future.delayed(const Duration(seconds: 1));
-        final res = await q.get();
-        if (res.docs.isNotEmpty) snap = res.docs.first;
-      }
+          .limit(1)
+          .snapshots()
+          .firstWhere((res) => res.docs.isNotEmpty)
+          .timeout(const Duration(seconds: 180))
+          .then((res) => res.docs.first);
       if (!mounted) return;
       Navigator.pop(context); // close dialog
+
+      if (snap.data()['error'] != null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Couldn't read that receipt. Try a flatter, "
+              "well-lit photo with the whole receipt in frame."),
+        ));
+        return; // stay on the preview so they can retake it
+      }
       Navigator.pop(context, snap.id); // return Firestore doc-ID
+    } on TimeoutException {
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text("Reading the receipt is taking too long. Try again in a minute."),
+      ));
     } catch (e) {
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Upload failed: $e")),
       );
@@ -145,7 +176,27 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
     body: Stack(
       fit: StackFit.expand,
       children: [
-        if (_controller != null) CameraPreview(_controller!),
+        if (_controller != null)
+          CameraPreview(_controller!)
+        else
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.no_photography_outlined,
+                    color: Colors.white70, size: 48),
+                const SizedBox(height: 12),
+                const Text('Camera unavailable',
+                    style: TextStyle(color: Colors.white70)),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('Choose from Photos'),
+                  onPressed: _pickPhoto,
+                ),
+              ],
+            ),
+          ),
 
         /* ← BACK */
         Positioned(
@@ -162,30 +213,44 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
           ),
         ),
 
-        /* Shutter */
-        Positioned(
-          bottom: 20,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: GestureDetector(
-              onTap: _takePhoto,
-              child: Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 4),
-                ),
-                child: const Align(
-                  alignment: Alignment.center,
-                  child: SizedBox(
-                    width: 65,
-                    height: 65,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
+        if (_controller != null) ...[
+          /* Photos */
+          Positioned(
+            bottom: 32,
+            left: 32,
+            child: IconButton(
+              icon: const Icon(Icons.photo_library_outlined,
+                  color: Colors.white, size: 32),
+              tooltip: 'Choose from Photos',
+              onPressed: _pickPhoto,
+            ),
+          ),
+
+          /* Shutter */
+          Positioned(
+            bottom: 20,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: GestureDetector(
+                onTap: _takePhoto,
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 4),
+                  ),
+                  child: const Align(
+                    alignment: Alignment.center,
+                    child: SizedBox(
+                      width: 65,
+                      height: 65,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
@@ -193,7 +258,7 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
               ),
             ),
           ),
-        ),
+        ],
       ],
     ),
   );

@@ -1,0 +1,9 @@
+rules_version = '2';
+// Local emulator only (see firebase.emulators.json). Never deployed.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}

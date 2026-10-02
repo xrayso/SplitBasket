@@ -12,6 +12,8 @@
 	<string>Split Basket</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Split Basket uses the camera to scan your grocery receipts.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Split Basket reads receipt photos you choose from your library.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

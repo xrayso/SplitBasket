@@ -17,6 +17,18 @@ void main() {
     expect(items[1].qty, 2);
   });
 
+  test('keeps the tax flag, including on items with discounts', () {
+    final items = parseCostcoItems([
+      {'itemDescription01': 'PAPER TOWEL', 'amount': 24.99, 'taxFlag': 'Y'},
+      {'itemDescription01': '/ 1234567', 'amount': -4.00, 'taxFlag': 'N'},
+      {'itemDescription01': 'BANANAS', 'amount': 1.99, 'taxFlag': 'N'},
+      {'itemDescription01': 'SOAP', 'amount': 9.99, 'taxFlag': true},
+      {'itemDescription01': 'MILK', 'amount': 6.49},
+    ]);
+    expect(items.map((i) => i.taxable), [true, false, true, false]);
+    expect(items[0].total, 20.99);
+  });
+
   test('drops voided rows and defaults missing quantity to 1', () {
     final items = parseCostcoItems([
       {'itemDescription01': 'ROTISSERIE CHKN', 'amount': 7.99},

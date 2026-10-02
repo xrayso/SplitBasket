@@ -1,2 +1,6 @@
 node_modules/
-*.local.runtimeconfig.json
+*.local
+.runtimeconfig.json
+
+# Receipt photos used to test the reader (contain personal info)
+test-receipts/

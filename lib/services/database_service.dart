@@ -8,10 +8,33 @@ import '../models/basket.dart';
 import '../models/grocery_item.dart';
 import '../models/charges.dart';
 import '../models/aggregated_charge.dart';
+import 'split_math.dart';
 
 class DatabaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+
+  // User names rarely change, so look each one up once per app session.
+  static final Map<String, Future<String>> _nameCache = {};
+
+  /// Reads a basket's items, lets [mutate] change them, and writes them back
+  /// in one transaction. Items live in a single array on the basket, so a plain
+  /// read-then-write would let two people's changes overwrite each other.
+  Future<void> _mutateItems(
+    String basketId,
+    void Function(List<Map<String, dynamic>> items) mutate,
+  ) {
+    final basketRef = _db.collection('baskets').doc(basketId);
+    return _db.runTransaction((tx) async {
+      final snap = await tx.get(basketRef);
+      if (!snap.exists) return;
+      final items = List<Map<String, dynamic>>.from(
+        (snap.data()?['items'] ?? const []).map((i) => Map<String, dynamic>.from(i)),
+      );
+      mutate(items);
+      tx.update(basketRef, {'items': items});
+    });
+  }
 
   // Create or update a basket
   Future<void> setBasket(Basket basket) {
@@ -50,6 +73,7 @@ class DatabaseService {
   }
 
   Future<void> setUser(user_dart.User user) {
+    _nameCache.remove(user.id);
     var options = SetOptions(merge: true);
     return _db.collection('users').doc(user.id).set(user.toMap(), options);
   }
@@ -59,29 +83,23 @@ class DatabaseService {
     return _db.collection('charges').doc(charge.id).set(charge.toMap(), options);
   }
 
-  Future<void> updateItemInBasket(String basketId, GroceryItem updatedItem) async {
-    DocumentReference basketRef = _db.collection('baskets').doc(basketId);
-    DocumentSnapshot basketSnapshot = await basketRef.get();
-    if (basketSnapshot.exists) {
-      Map<String, dynamic> data = basketSnapshot.data() as Map<String, dynamic>;
-      List<dynamic> items = data['items'] ?? [];
-      int index = items.indexWhere((item) => item['id'] == updatedItem.id);
-      if (index != -1) {
-        items[index] = updatedItem.toMap();
-        await basketRef.update({'items': items});
-      }
-    }
+  /// Saves edits to an item's details. Shares come from the stored item, so
+  /// opt-ins made while the edit screen was open aren't lost.
+  Future<void> updateItemInBasket(String basketId, GroceryItem updatedItem) {
+    return _mutateItems(basketId, (items) {
+      final index = items.indexWhere((item) => item['id'] == updatedItem.id);
+      if (index == -1) return;
+      items[index] = {
+        ...updatedItem.toMap(),
+        'userShares': items[index]['userShares'] ?? updatedItem.userShares,
+      };
+    });
   }
 
-  Future<void> deleteItemFromBasket(String basketId, String itemId) async {
-    DocumentReference basketRef = _db.collection('baskets').doc(basketId);
-    DocumentSnapshot basketSnapshot = await basketRef.get();
-    if (basketSnapshot.exists) {
-      Map<String, dynamic> data = basketSnapshot.data() as Map<String, dynamic>;
-      List<dynamic> items = data['items'] ?? [];
+  Future<void> deleteItemFromBasket(String basketId, String itemId) {
+    return _mutateItems(basketId, (items) {
       items.removeWhere((item) => itemId == item['id']);
-      await basketRef.update({'items': items});
-    }
+    });
   }
 
   Future<void> deleteBasket(String basketId) async {
@@ -92,6 +110,19 @@ class DatabaseService {
   Future<void> addItemToBasket(String basketId, GroceryItem item) {
     return _db.collection('baskets').doc(basketId).update({
       'items': FieldValue.arrayUnion([item.toMap()])
+    });
+  }
+
+  /// Adds a whole receipt's items in one write, and adds the receipt's tax to
+  /// the basket so finalizing can fill it in.
+  Future<void> addItemsToBasket(
+    String basketId,
+    List<GroceryItem> items, {
+    double receiptTax = 0,
+  }) {
+    return _db.collection('baskets').doc(basketId).update({
+      'items': FieldValue.arrayUnion(items.map((i) => i.toMap()).toList()),
+      if (receiptTax > 0) 'receiptTax': FieldValue.increment(receiptTax),
     });
   }
 
@@ -118,7 +149,26 @@ class DatabaseService {
     });
   }
 
-  Future<String> getUserNameById(String uid) async {
+  Future<String> getUserNameById(String uid) {
+    final cached = _nameCache[uid];
+    if (cached != null) return cached;
+    final lookup = _fetchUserName(uid);
+    _nameCache[uid] = lookup;
+    // Don't remember failures; try again next time.
+    lookup.then((name) {
+      if (name == 'Unknown User') _nameCache.remove(uid);
+    });
+    return lookup;
+  }
+
+  /// Names for several users at once, e.g. everyone in a basket.
+  Future<Map<String, String>> getUserNames(Iterable<String> uids) async {
+    final ids = uids.toSet().toList();
+    final names = await Future.wait(ids.map(getUserNameById));
+    return {for (var i = 0; i < ids.length; i++) ids[i]: names[i]};
+  }
+
+  Future<String> _fetchUserName(String uid) async {
     try {
       QuerySnapshot querySnapshot = await _db
           .collection('users')
@@ -264,29 +314,54 @@ class DatabaseService {
     return cost;
   }
 
-  Future<void> finalizeBasket(Basket basket, double taxPercent) async {
-    List<Charge> charges = _calculateCharges(basket, taxPercent);
-    try {
-      for (Charge charge in charges) {
-        await setCharge(charge);
+  /// Turns the basket into charges and deletes it. [taxTotal] is the sales tax
+  /// in dollars, split across taxable items (see computeCharges).
+  Future<void> finalizeBasket(Basket basket, double taxTotal) async {
+    final now = DateTime.now();
+    final charges = computeCharges(basket.items, taxTotal).map((line) => Charge(
+          id: Uuid().v4(),
+          payerId: line.payerId,
+          payeeId: line.payeeId,
+          amount: line.amount,
+          item: line.item ??
+              GroceryItem(
+                id: Uuid().v4(),
+                name: "Tax",
+                price: line.taxRate,
+                quantity: 1,
+                addedBy: line.payeeId,
+                userShares: {},
+                paidBy: "me",
+              ),
+          date: now,
+          isTax: line.isTax,
+        ));
+
+    // Write every charge before anything else, in as few batches as allowed.
+    var batch = _db.batch();
+    var ops = 0;
+    for (final charge in charges) {
+      batch.set(_db.collection('charges').doc(charge.id), charge.toMap());
+      if (++ops == 450) {
+        await batch.commit();
+        batch = _db.batch();
+        ops = 0;
       }
-      String title = "Basket Finalized!";
-      String body = "${basket.name} has been finalized. Check your charges!";
-      sendNotification(title, body, basket.memberTokens);
-      await deleteBasket(basket.id);
-    } catch (e) {
-      // If something goes wrong, here's just an example of adding an error item
-      GroceryItem item = GroceryItem(
-        id: Uuid().v4(),
-        name: e.toString(),
-        price: 3,
-        quantity: 3,
-        addedBy: "addedBy",
-        userShares: {},
-        paidBy: "error",
-      );
-      await addItemToBasket(basket.id, item);
     }
+    await batch.commit();
+
+    // Notify while the basket still exists: the server checks that the host
+    // shares a basket with everyone it notifies.
+    try {
+      await sendNotification(
+        "Basket Finalized!",
+        "${basket.name} has been finalized. Check your charges!",
+        basket.memberTokens,
+      );
+    } catch (_) {
+      // A failed notification shouldn't stop the basket from finalizing.
+    }
+    await deleteBasket(basket.id);
   }
 
 
@@ -308,62 +383,6 @@ class DatabaseService {
     await batch.commit();
   }
 
-
-  // Updated to handle userShares as { uid: {share: double, isManual: bool} }
-  List<Charge> _calculateCharges(Basket basket, double taxPercent) {
-    Map<String, Map<String, double>> totalUserCosts = {};
-    List<Charge> charges = [];
-    for (GroceryItem item in basket.items) {
-      double totalItemCost = item.price * item.quantity;
-      item.userShares.forEach((userId, shareData) {
-        if (userId == item.paidBy) return;
-        double fraction = (shareData['share'] ?? 0.0).toDouble();
-        double userCost = totalItemCost * fraction;
-        if (totalUserCosts[userId] == null){
-          totalUserCosts[userId] = {};
-        }
-        totalUserCosts[userId]?[item.paidBy] = (totalUserCosts[userId]?[item.paidBy] ?? 0) + userCost;
-        if (userCost > 0) {
-          charges.add(
-            Charge(
-              id: Uuid().v4(),
-              payerId: userId,
-              payeeId: item.paidBy,
-              amount: userCost,
-              item: item,
-              date: DateTime.now(),
-              isTax: false,
-            ),
-          );
-        }
-      });
-    }
-    for (var payerInfo in totalUserCosts.entries){
-      for (var payeeInfo in payerInfo.value.entries) {
-        if (payeeInfo.value * taxPercent > 0) {
-          double taxPrice = payeeInfo.value * taxPercent;
-          charges.add(
-            Charge(
-                id: Uuid().v4(),
-                payerId: payerInfo.key,
-                payeeId: payeeInfo.key,
-                amount: taxPrice,
-                item: GroceryItem(id: Uuid().v4(),
-                    name: "Tax",
-                    price: taxPercent,
-                    quantity: 1,
-                    addedBy: payeeInfo.key,
-                    userShares: {},
-                    paidBy: "me"),
-                date: DateTime.now(),
-                isTax: true
-            ),
-          );
-        }
-      }
-    }
-    return charges;
-  }
 
   Stream<List<Charge>> getChargesBetweenUsers(String currentUserId, String otherUserId) {
     return _db
@@ -418,97 +437,56 @@ class DatabaseService {
     });
   }
 
-  // --------------
-  // EDITED METHOD:
-  // --------------
-  // Now storing user share as { 'share': double, 'isManual': bool }.
-  // Recalculate auto-shares after setting any share.
+  /// Sets one user's share of an item. A manual share of 0 opts them out;
+  /// isManual: false opts them in to split whatever's left equally.
   Future<void> setUserShare(
       String basketId,
       GroceryItem item, {
         required String currentUserId,
         required double newShare,
         required bool isManual,
-      }) async {
-    final basketRef = _db.collection('baskets').doc(basketId);
-    final basketSnapshot = await basketRef.get();
-    if (!basketSnapshot.exists) return;
-
-    List<dynamic> items = basketSnapshot.get('items') ?? [];
-    int index = items.indexWhere((i) => i['id'] == item.id);
-    if (index == -1) return;
-
-    Map<String, dynamic> userShares = Map<String, dynamic>.from(
-      items[index]['userShares'] ?? {},
-    );
-
-    if (newShare == 0.0 && isManual) {
-      userShares.remove(currentUserId);
-    } else {
-      userShares[currentUserId] = {
-        'share': newShare,
-        'isManual': isManual,
-      };
-    }
-
-    items[index]['userShares'] = userShares;
-    await basketRef.update({'items': items});
-
-    // Recalculate auto-shares after the update
-    await _recalculateAutoShares(basketRef, item.id);
+      }) {
+    return _mutateItems(basketId, (items) {
+      final index = items.indexWhere((i) => i['id'] == item.id);
+      if (index == -1) return;
+      items[index]['userShares'] = withShare(
+        Map<String, dynamic>.from(items[index]['userShares'] ?? {}),
+        currentUserId,
+        share: newShare,
+        isManual: isManual,
+      );
+    });
   }
 
-  /// Recalculate shares for all users with isManual=false.
-  /// leftover = 1.0 - sum of all manual shares.
-  /// Distribute leftover equally among auto users.
-  Future<void> _recalculateAutoShares(DocumentReference basketRef, String itemId) async {
-    final snap = await basketRef.get();
-    if (!snap.exists) return;
-
-    final data = snap.data() as Map<String, dynamic>;
-    List<dynamic> items = data['items'] ?? [];
-    final idx = items.indexWhere((i) => i['id'] == itemId);
-    if (idx == -1) return;
-
-    Map<String, dynamic> userShares =
-    Map<String, dynamic>.from(items[idx]['userShares'] ?? {});
-
-    double totalManual = 0.0;
-    List<String> autoUsers = [];
-
-    userShares.forEach((uid, data) {
-      final share = (data['share'] ?? 0.0).toDouble();
-      final manual = (data['isManual'] ?? false) == true;
-      if (manual) {
-        totalManual += share;
-      } else {
-        autoUsers.add(uid);
+  /// Opts [uid] in or out of several items at once.
+  Future<void> setOptIn(
+    String basketId,
+    Iterable<String> itemIds,
+    String uid, {
+    required bool optedIn,
+  }) {
+    final ids = itemIds.toSet();
+    return _mutateItems(basketId, (items) {
+      for (final item in items.where((i) => ids.contains(i['id']))) {
+        final shares = Map<String, dynamic>.from(item['userShares'] ?? {});
+        item['userShares'] =
+            optedIn ? withOptIn(shares, uid) : withOptOut(shares, uid);
       }
     });
+  }
 
-    double leftover = 1.0 - totalManual;
-    if (leftover < 0) leftover = 0.0; // clamp if manual shares exceed 1.0
-
-    if (autoUsers.isEmpty || leftover <= 0) {
-      // If leftover is 0 or negative, auto users get 0
-      for (String uid in autoUsers) {
-        userShares[uid] = {
-          'share': 0.0,
-          'isManual': false,
-        };
+  /// Splits each item equally between [memberIds], replacing existing shares.
+  Future<void> splitEvenly(
+    String basketId,
+    Iterable<String> itemIds,
+    List<String> memberIds,
+  ) {
+    final ids = itemIds.toSet();
+    return _mutateItems(basketId, (items) {
+      for (final item in items.where((i) => ids.contains(i['id']))) {
+        item['userShares'] = evenShares(memberIds);
       }
-    } else {
-      double eachAutoShare = leftover / autoUsers.length;
-      for (String uid in autoUsers) {
-        userShares[uid] = {
-          'share': eachAutoShare,
-          'isManual': false,
-        };
-      }
-    }
-
-    items[idx]['userShares'] = userShares;
-    await basketRef.update({'items': items});
+    });
   }
 
   Stream<List<Basket>> getInvitedBaskets(String userId) {

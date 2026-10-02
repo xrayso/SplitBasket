@@ -1,29 +1,31 @@
 // lib/screens/basket_screen.dart
-// UPDATED: adds “Scan Receipt” flow to the ➕ button.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../models/basket.dart';
 import '../models/grocery_item.dart';
 import '../services/auth_service.dart';
 import '../services/costco_receipts.dart';
 import '../services/database_service.dart';
+import '../services/split_math.dart';
 import '../widgets/grocery_item_tile.dart';
 import 'add_item_screen.dart';
 import 'basket_members_screen.dart';
 import 'costco_import_screen.dart';
 import 'expense_summary_screen.dart';
 import 'main_screen.dart';
-import 'scan_receipt_screen.dart';          // ⬅ NEW IMPORT
+import 'receipt_review_screen.dart';
+import 'scan_receipt_screen.dart';
 
 class BasketScreen extends StatefulWidget {
   final String basketId;
   const BasketScreen({super.key, required this.basketId});
 
   @override
-  _BasketScreenState createState() => _BasketScreenState();
+  State<BasketScreen> createState() => _BasketScreenState();
 }
 
 class _BasketScreenState extends State<BasketScreen> {
@@ -31,6 +33,18 @@ class _BasketScreenState extends State<BasketScreen> {
   final DatabaseService _dbService = DatabaseService();
   int _currentIndex = 1;
   late PageController _pageController;
+  // Created once: a new stream per build would re-listen to Firestore (and
+  // re-download the basket) every time the screen redraws.
+  late final Stream<Basket> _basketStream =
+      _dbService.streamBasket(widget.basketId);
+
+  // Names for everyone who appears in the basket, loaded once and passed down.
+  Map<String, String> _names = {};
+  Set<String> _namesFor = {};
+
+  // Multi-select (long-press an item) and the "needs someone" filter.
+  final Set<String> _selected = {};
+  bool _onlyNeedsSomeone = false;
 
   @override
   void initState() {
@@ -44,12 +58,24 @@ class _BasketScreenState extends State<BasketScreen> {
     super.dispose();
   }
 
+  void _loadNames(Basket basket) {
+    final ids = {
+      ...basket.memberIds,
+      for (final item in basket.items) ...[item.paidBy, ...item.userShares.keys],
+    };
+    if (ids.length == _namesFor.length && ids.containsAll(_namesFor)) return;
+    _namesFor = ids;
+    _dbService.getUserNames(ids).then((names) {
+      if (mounted) setState(() => _names = names);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUserId = _authService.currentUser!.uid;
 
     return StreamBuilder<Basket>(
-      stream: _dbService.streamBasket(widget.basketId),
+      stream: _basketStream,
       builder: (context, snapshot) {
         if (snapshot.hasError || !snapshot.hasData) {
           if (snapshot.hasError) {
@@ -68,41 +94,12 @@ class _BasketScreenState extends State<BasketScreen> {
         }
 
         final basket = snapshot.data!;
+        _loadNames(basket);
+        _selected.removeWhere((id) => !basket.items.any((i) => i.id == id));
+
         final pages = [
           BasketMembersScreen(basket: basket),
-          Scaffold(
-            appBar: AppBar(
-              title: Text(basket.name),
-              actions: [
-                if (basket.hostId == currentUserId)
-                  IconButton(
-                    icon: const Icon(Icons.check),
-                    tooltip: 'Finalize Basket',
-                    onPressed: () => _finalizeBasket(context, basket),
-                  ),
-                if (basket.hostId == currentUserId)
-                  IconButton(
-                    icon: const Icon(Icons.delete),
-                    tooltip: 'Delete Basket',
-                    onPressed: () => _deleteBasket(context, basket),
-                  ),
-              ],
-            ),
-            body: basket.items.isEmpty
-                ? const Center(child: Text('No items added yet.'))
-                : ListView.builder(
-              itemCount: basket.items.length,
-              itemBuilder: (_, idx) => GroceryItemTile(
-                key: ValueKey(basket.items[idx].id),
-                item: basket.items[idx],
-                basketId: widget.basketId,
-              ),
-            ),
-            floatingActionButton: FloatingActionButton(
-              child: const Icon(Icons.add),
-              onPressed: () => _showAddMenu(context, basket),
-            ),
-          ),
+          _basketPage(context, basket, currentUserId),
           ExpenseSummaryScreen(basket: basket),
         ];
 
@@ -134,6 +131,262 @@ class _BasketScreenState extends State<BasketScreen> {
     );
   }
 
+  /* ---------- BASKET PAGE ---------- */
+  Widget _basketPage(BuildContext context, Basket basket, String uid) {
+    final selecting = _selected.isNotEmpty;
+    final needs = basket.items.where((i) => i.needsSomeone).length;
+    final filterOn = _onlyNeedsSomeone && needs > 0;
+    final visible =
+        filterOn ? basket.items.where((i) => i.needsSomeone).toList() : basket.items;
+
+    return PopScope(
+      // Back leaves selection mode first.
+      canPop: !selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(_selected.clear);
+      },
+      child: Scaffold(
+        appBar: selecting
+            ? _selectionAppBar(basket, uid)
+            : _normalAppBar(context, basket, uid),
+        body: basket.items.isEmpty
+            ? _emptyState(context, basket)
+            : Column(
+                children: [
+                  _summaryBar(context, basket, uid, needs, filterOn),
+                  Expanded(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 88),
+                      itemCount: visible.length,
+                      itemBuilder: (_, idx) {
+                        final item = visible[idx];
+                        return GroceryItemTile(
+                          key: ValueKey(item.id),
+                          item: item,
+                          basket: basket,
+                          names: _names,
+                          selectionMode: selecting,
+                          selected: _selected.contains(item.id),
+                          onLongPress: () =>
+                              setState(() => _toggleSelected(item.id)),
+                          onSelectToggle: () =>
+                              setState(() => _toggleSelected(item.id)),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+        floatingActionButton: selecting
+            ? null
+            : FloatingActionButton(
+                child: const Icon(Icons.add),
+                onPressed: () => _showAddMenu(context, basket),
+              ),
+      ),
+    );
+  }
+
+  void _toggleSelected(String id) =>
+      _selected.contains(id) ? _selected.remove(id) : _selected.add(id);
+
+  PreferredSizeWidget _normalAppBar(BuildContext context, Basket basket, String uid) {
+    final isHost = basket.hostId == uid;
+    return AppBar(
+      title: Text(basket.name),
+      actions: [
+        if (isHost)
+          IconButton(
+            icon: const Icon(Icons.check),
+            tooltip: 'Finalize Basket',
+            onPressed: () => _finalizeBasket(context, basket),
+          ),
+        PopupMenuButton<String>(
+          onSelected: (action) {
+            switch (action) {
+              case 'allIn':
+                _bulk(
+                  _dbService.setOptIn(basket.id, basket.items.map((i) => i.id), uid,
+                      optedIn: true),
+                  "You're in on all ${basket.items.length} items",
+                );
+              case 'allEven':
+                _confirmSplitEvenly(context, basket, basket.items.map((i) => i.id));
+              case 'select':
+                if (basket.items.isNotEmpty) {
+                  setState(() => _selected.add(basket.items.first.id));
+                }
+              case 'delete':
+                _deleteBasket(context, basket);
+            }
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'allIn', child: Text("I'm in on everything")),
+            const PopupMenuItem(value: 'allEven', child: Text('Split everything evenly')),
+            const PopupMenuItem(value: 'select', child: Text('Select items')),
+            if (isHost) const PopupMenuItem(value: 'delete', child: Text('Delete basket')),
+          ],
+        ),
+      ],
+    );
+  }
+
+  PreferredSizeWidget _selectionAppBar(Basket basket, String uid) {
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: 'Done',
+        onPressed: () => setState(_selected.clear),
+      ),
+      title: Text('${_selected.length} selected'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.select_all),
+          tooltip: 'Select all',
+          onPressed: () => setState(() => _selected.addAll(basket.items.map((i) => i.id))),
+        ),
+        IconButton(
+          icon: const Icon(Icons.add_task),
+          tooltip: "I'm in",
+          onPressed: () => _bulk(
+            _dbService.setOptIn(basket.id, {..._selected}, uid, optedIn: true),
+            "You're in on ${_selected.length} items",
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.remove_done),
+          tooltip: "I'm out",
+          onPressed: () => _bulk(
+            _dbService.setOptIn(basket.id, {..._selected}, uid, optedIn: false),
+            "You're out of ${_selected.length} items",
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.groups_outlined),
+          tooltip: 'Split evenly with everyone',
+          onPressed: () => _confirmSplitEvenly(context, basket, {..._selected}),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _bulk(Future<void> action, String done) async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(_selected.clear);
+    try {
+      await action;
+      messenger.showSnackBar(SnackBar(content: Text(done)));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text("Couldn't update items: $e")));
+    }
+  }
+
+  Future<void> _confirmSplitEvenly(
+      BuildContext context, Basket basket, Iterable<String> itemIds) async {
+    final ids = itemIds.toSet();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Split evenly?'),
+        content: Text(
+          'All ${basket.memberIds.length} members will split '
+          '${ids.length == 1 ? 'this item' : 'these ${ids.length} items'} equally. '
+          'This replaces any shares people already chose.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Split evenly')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await _bulk(
+        _dbService.splitEvenly(basket.id, ids, basket.memberIds),
+        'Split ${ids.length} items evenly',
+      );
+    }
+  }
+
+  Widget _summaryBar(
+      BuildContext context, Basket basket, String uid, int needs, bool filterOn) {
+    final theme = Theme.of(context);
+    final total = basket.items.fold(0.0, (s, i) => s + i.total);
+    final mine = shareTotalFor(uid, basket.items);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text.rich(
+              TextSpan(children: [
+                const TextSpan(text: 'Your share '),
+                TextSpan(
+                  text: '\$${mine.toStringAsFixed(2)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                TextSpan(
+                  text: '  of \$${total.toStringAsFixed(2)}',
+                  style: TextStyle(color: theme.hintColor),
+                ),
+              ]),
+            ),
+          ),
+          if (needs > 0)
+            FilterChip(
+              avatar: filterOn
+                  ? null
+                  : Icon(Icons.filter_list, size: 18, color: Colors.deepOrange.shade400),
+              label: Text('$needs need someone'),
+              labelStyle: TextStyle(color: Colors.deepOrange.shade700),
+              side: BorderSide(color: Colors.deepOrange.shade200),
+              selected: filterOn,
+              selectedColor: Colors.deepOrange.shade50,
+              checkmarkColor: Colors.deepOrange.shade700,
+              visualDensity: VisualDensity.compact,
+              onSelected: (on) => setState(() => _onlyNeedsSomeone = on),
+            )
+          else
+            Row(
+              children: [
+                Icon(Icons.check_circle, size: 18, color: Colors.green.shade600),
+                const SizedBox(width: 4),
+                Text('All claimed', style: theme.textTheme.bodySmall),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState(BuildContext context, Basket basket) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.shopping_basket_outlined, size: 56, color: theme.hintColor),
+            const SizedBox(height: 12),
+            Text('No items yet', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Add items by hand, scan a receipt, or import one from Costco.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: theme.hintColor),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('Add items'),
+              onPressed: () => _showAddMenu(context, basket),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /* ---------- PLUS BUTTON MENU ---------- */
   void _showAddMenu(BuildContext ctx, Basket basket) {
     showModalBottomSheet(
@@ -156,54 +409,19 @@ class _BasketScreenState extends State<BasketScreen> {
             ListTile(
               leading: const Icon(Icons.camera_alt),
               title: const Text('Scan Receipt'),
-              onTap: () async {
+              subtitle: const Text('Any store, from a photo'),
+              onTap: () {
                 Navigator.pop(ctx);
-                final receiptId = await Navigator.push<String>(
-                  ctx,
-                  MaterialPageRoute(builder: (_) => const ScanReceiptScreen()),
-                );
-                if (receiptId != null) {
-                  // Pull parsed line-items and add to basket
-                  final snap = await FirebaseFirestore.instance
-                      .collection('receipts/$receiptId/items')
-                      .get();
-
-                  await _importReceiptItems(
-                    ctx,
-                    basket,
-                    snap.docs.map((d) => _ReceiptPreviewItem(
-                      description: d['description'] as String,
-                      qty: (d['qty'] as num).toInt(),
-                      total: (d['total'] as num).toDouble(),
-                    )).toList(),
-                  );
-                }
+                _scanReceipt(ctx, basket);
               },
             ),
             ListTile(
               leading: const Icon(Icons.store),
               title: const Text('Import from Costco'),
-              onTap: () async {
+              subtitle: const Text('From your Costco account'),
+              onTap: () {
                 Navigator.pop(ctx);
-                final receipt = await Navigator.push<CostcoReceipt>(
-                  ctx,
-                  MaterialPageRoute(builder: (_) => const CostcoImportScreen()),
-                );
-                if (receipt == null) return;
-
-                await _importReceiptItems(
-                  ctx,
-                  basket,
-                  receipt.items.map((i) => _ReceiptPreviewItem(
-                    description: i.description,
-                    qty: i.qty,
-                    total: i.total,
-                  )).toList(),
-                  note: receipt.taxes > 0
-                      ? 'Tax on this receipt: \$${receipt.taxes.toStringAsFixed(2)}. '
-                        'Enter it when you finalize the basket.'
-                      : null,
-                );
+                _importCostco(ctx, basket);
               },
             ),
           ],
@@ -212,100 +430,276 @@ class _BasketScreenState extends State<BasketScreen> {
     );
   }
 
-  void _finalizeBasket(BuildContext context, Basket basket) async {
-    String finalizeError = "";
-    String itemNotOptedIn = "";
-    String itemNotCorrectShare = "";
-    for (GroceryItem item in basket.items){
-      double shareSum = 0;
-      if (item.userShares.isEmpty){
-        itemNotOptedIn = item.name;
-        break;
-      }
-      for (Map<String, dynamic> shareInfo in item.userShares.values){
-        shareSum += shareInfo['share'];
-      }
-      if (shareSum - 1 > 0.01 || shareSum - 1 < -0.01){
-        itemNotCorrectShare = item.name;
-        break;
-      }
-    }
+  /* ---------- RECEIPTS ---------- */
+  Future<void> _scanReceipt(BuildContext ctx, Basket basket) async {
+    final receiptId = await Navigator.push<String>(
+      ctx,
+      MaterialPageRoute(builder: (_) => const ScanReceiptScreen()),
+    );
+    if (receiptId == null || !ctx.mounted) return;
 
-    if (basket.items.isEmpty){
-      finalizeError = "You cannot finalize a basket with no items. Please add items to the basket before finalizing";
-    }else if (itemNotOptedIn != ""){
-      finalizeError = "No one has opted into item [$itemNotOptedIn]}.";
-    }else if (itemNotCorrectShare != ""){
-      finalizeError = "Shares do not add up to cost for item [$itemNotCorrectShare].";
-    }
+    final ref = FirebaseFirestore.instance.collection('receipts').doc(receiptId);
+    final data = (await ref.get()).data() ?? {};
+    final docs = (await ref.collection('items').get()).docs
+      ..sort((a, b) => ((a.data()['index'] ?? 0) as num)
+          .compareTo((b.data()['index'] ?? 0) as num));
+    if (!ctx.mounted) return;
 
-
-    if (finalizeError != "") {
-      await showDialog(
-        context: context,
-        builder: (context) =>
-            AlertDialog(
-              title: Text('Cannot Finalize Basket'),
-              content: Text(finalizeError),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text('OK'),
-                )
-              ],
-            ),
+    final lines = docs.map((d) {
+      final m = d.data();
+      final qty = (m['qty'] as num?)?.round() ?? 1;
+      return ReceiptLine(
+        description: (m['description'] ?? '').toString(),
+        qty: qty < 1 ? 1 : qty,
+        total: (m['total'] as num?)?.toDouble() ?? 0,
+        taxable: m['taxable'] == true,
+        category: kItemCategories.containsKey(m['category']) ? m['category'] : null,
       );
+    }).toList();
+
+    final tax = (data['tax'] as num?)?.toDouble() ?? 0;
+    final total = (data['total'] as num?)?.toDouble();
+    final subtotal = (data['subtotal'] as num?)?.toDouble() ??
+        (total != null && total > 0 ? total - tax : null);
+    await _review(
+      ctx,
+      basket,
+      title: (data['store'] as String?)?.trim().isNotEmpty == true
+          ? data['store']
+          : 'Scanned receipt',
+      lines: lines,
+      tax: tax,
+      subtotal: subtotal,
+    );
+  }
+
+  Future<void> _importCostco(BuildContext ctx, Basket basket) async {
+    final receipt = await Navigator.push<CostcoReceipt>(
+      ctx,
+      MaterialPageRoute(builder: (_) => const CostcoImportScreen()),
+    );
+    if (receipt == null || !ctx.mounted) return;
+
+    final lines = receipt.items
+        .map((i) => ReceiptLine(
+              description: i.description,
+              qty: i.qty,
+              total: i.total,
+              taxable: i.taxable,
+              code: i.itemNumber,
+            ))
+        .toList();
+    await _tidyNames(ctx, lines, store: 'Costco');
+    if (!ctx.mounted) return;
+
+    await _review(
+      ctx,
+      basket,
+      title: receipt.date != null
+          ? 'Costco · ${DateFormat('MMM d').format(receipt.date!)}'
+          : 'Costco',
+      lines: lines,
+      tax: receipt.taxes,
+      subtotal: receipt.total > 0 ? receipt.total - receipt.taxes : null,
+    );
+  }
+
+  /// Turns abbreviations like "KS ORG EGGS" into real product names, looking
+  /// items up online when needed, and sorts them into categories. Keeps the
+  /// original names if it fails.
+  Future<void> _tidyNames(BuildContext ctx, List<ReceiptLine> lines,
+      {required String store}) async {
+    if (lines.isEmpty) return;
+    showDialog(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Flexible(child: Text('Looking up products…')),
+          ],
+        ),
+      ),
+    );
+    try {
+      final result = await FirebaseFunctions.instance
+          .httpsCallable('cleanItemNames',
+              options: HttpsCallableOptions(timeout: const Duration(seconds: 120)))
+          .call({
+        'store': store,
+        'items': lines.map((l) => {'text': l.description, 'code': l.code}).toList(),
+      });
+      final items = (result.data['items'] as List?) ?? const [];
+      if (items.length == lines.length) {
+        for (var i = 0; i < lines.length; i++) {
+          final name = (items[i]['name'] ?? '').toString().trim();
+          final category = items[i]['category'];
+          if (name.isNotEmpty) lines[i].description = name;
+          if (kItemCategories.containsKey(category)) lines[i].category = category;
+        }
+      }
+    } catch (_) {
+      // Costco's own names still work; just less readable.
+    } finally {
+      if (ctx.mounted) Navigator.pop(ctx);
+    }
+  }
+
+  /// Opens the full-screen review, then adds the chosen items in one write.
+  Future<void> _review(
+    BuildContext ctx,
+    Basket basket, {
+    required String title,
+    required List<ReceiptLine> lines,
+    double tax = 0,
+    double? subtotal,
+  }) async {
+    final messenger = ScaffoldMessenger.of(ctx);
+    if (lines.isEmpty) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text("Couldn't find any items on that receipt.")));
+      return;
+    }
+    final uid = _authService.currentUser!.uid;
+    final result = await Navigator.push<ReceiptReviewResult>(
+      ctx,
+      MaterialPageRoute(
+        builder: (_) => ReceiptReviewScreen(
+          title: title,
+          lines: lines,
+          memberIds: basket.memberIds,
+          names: _names,
+          defaultPayer: uid,
+          tax: tax,
+          receiptSubtotal: subtotal,
+        ),
+      ),
+    );
+    if (result == null) return;
+
+    final items = result.lines.map((l) {
+      final qty = l.qty < 1 ? 1 : l.qty;
+      final name = l.description.trim();
+      return GroceryItem(
+        id: Uuid().v4(),
+        name: name.isEmpty ? 'Item' : name,
+        price: l.total / qty,
+        quantity: qty,
+        addedBy: uid,
+        paidBy: result.payerId,
+        userShares: evenShares(l.people),
+        taxable: l.taxable,
+        category: l.category,
+      );
+    }).toList();
+
+    try {
+      await _dbService.addItemsToBasket(basket.id, items, receiptTax: result.tax);
+      messenger.showSnackBar(SnackBar(content: Text('Added ${items.length} items')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text("Couldn't add items: $e")));
+    }
+  }
+
+  /* ---------- FINALIZE / DELETE ---------- */
+  void _finalizeBasket(BuildContext context, Basket basket) async {
+    final unclaimed = basket.items.where((i) => i.needsSomeone).toList();
+    final badShares = basket.items.where((i) {
+      if (i.needsSomeone) return false;
+      final sum = i.userShares.values
+          .fold(0.0, (s, d) => s + ((d is Map ? d['share'] ?? 0 : 0) as num).toDouble());
+      return (sum - 1).abs() > 0.01;
+    }).toList();
+
+    String? error;
+    if (basket.items.isEmpty) {
+      error = 'Add some items before finalizing.';
+    } else if (unclaimed.isNotEmpty) {
+      error = '${unclaimed.length == 1 ? '1 item has' : '${unclaimed.length} items have'} '
+          'no one opted in yet: ${_listNames(unclaimed)}.';
+    } else if (badShares.isNotEmpty) {
+      error = "Shares don't add up to 100% for: ${_listNames(badShares)}.";
+    }
+
+    if (error != null) {
+      final showThem = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("Can't finalize yet"),
+          content: Text(error!),
+          actions: [
+            if (unclaimed.isNotEmpty)
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Show them'),
+              ),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('OK')),
+          ],
+        ),
+      );
+      if (showThem == true) setState(() => _onlyNeedsSomeone = true);
       return;
     }
 
-    final textCtrl = TextEditingController(
-      text: (0).toStringAsFixed(0),
+    final taxCtrl = TextEditingController(
+      text: basket.receiptTax > 0 ? basket.receiptTax.toStringAsFixed(2) : '',
     );
-    double taxPercent = 0;
-    double totalBasketCost = await _dbService.calculateTotalBasketPrice(basket.id);
-    bool confirm = await showDialog(
+    final taxed = basket.items.where((i) => i.taxable).toList();
+    final taxedTotal = taxed.fold(0.0, (s, i) => s + i.total);
+
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Finalize Basket'),
-        content: StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: textCtrl,
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Enter Tax Cost (\$)',
-                  ),
-                  onChanged: (val) {
-                    final parsed = double.tryParse(val);
-                    if (parsed != null) {
-                      setDialogState(() {
-                        taxPercent = parsed / totalBasketCost;
-                      });
-                    }
-                  },
-                ),
-              ],
-            );
-          },
+        title: const Text('Finalize Basket'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: taxCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Tax', prefixText: '\$'),
+            ),
+            const SizedBox(height: 12),
+            if (basket.receiptTax > 0)
+              const Text('Filled in from imported receipts. Add tax for any '
+                  'items you entered by hand.\n'),
+            Text(
+              taxed.isEmpty
+                  ? 'No items are marked as taxed, so tax is split across everything.'
+                  : 'Tax is split across the ${taxed.length} taxed '
+                      '${taxed.length == 1 ? 'item' : 'items'} '
+                      '(\$${taxedTotal.toStringAsFixed(2)}), so nobody pays tax on '
+                      'untaxed groceries.',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+          ],
         ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: Text('Cancel')),
-              TextButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: Text('Finalize')),
-            ],
-          ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Finalize')),
+        ],
+      ),
     );
-    if (confirm) await _dbService.finalizeBasket(basket, taxPercent);
+    if (confirm != true || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _dbService.finalizeBasket(basket, double.tryParse(taxCtrl.text.trim()) ?? 0);
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text("Couldn't finalize: $e")));
+    }
+  }
+
+  String _listNames(List<GroceryItem> items) {
+    final shown = items.take(4).map((i) => i.name).join(', ');
+    return items.length > 4 ? '$shown and ${items.length - 4} more' : shown;
   }
 
   void _deleteBasket(BuildContext context, Basket basket) async {
-    bool confirm = await showDialog(
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (context) =>
           AlertDialog(
@@ -322,163 +716,6 @@ class _BasketScreenState extends State<BasketScreen> {
             ],
           ),
     );
-    if (confirm) await _dbService.deleteBasket(basket.id);
+    if (confirm == true) await _dbService.deleteBasket(basket.id);
   }
-  /// Lets the user review receipt lines, then adds the ticked ones to the basket.
-  Future<void> _importReceiptItems(
-      BuildContext ctx,
-      Basket basket,
-      List<_ReceiptPreviewItem> items, {
-      String? note,
-      }) async {
-    final result = await _showReceiptPreviewDialog(
-      ctx,
-      items,
-      basket.memberIds,
-      _authService.currentUser!.uid,
-      note: note,
-    );
-
-    if (result == null) return; // user cancelled
-
-    for (final it in result.items.where((i) => i.include)) {
-      await _dbService.addItemToBasket(
-        basket.id,
-        GroceryItem(
-          id: Uuid().v4(),
-          name: it.description,
-          price: it.total / it.qty,
-          quantity: it.qty,
-          addedBy: _authService.currentUser!.uid,
-          paidBy: result.selectedPayer,
-          userShares: {},
-        ),
-      );
-    }
-    ScaffoldMessenger.of(ctx).showSnackBar(
-      SnackBar(
-        content: Text('Added ${result.items.where((i)=>i.include).length} items!'),
-      ),
-    );
-  }
-
-  /// Shows the preview & returns null if cancelled,
-  /// or a ReceiptPreviewResult with the edited items & payer.
-  Future<ReceiptPreviewResult?> _showReceiptPreviewDialog(
-      BuildContext context,
-      List<_ReceiptPreviewItem> previewItems,
-      List<String> possiblePayers,
-      String defaultPayer, {
-      String? note,
-      }) async {
-    Map<String, String> userIdToName = {};
-    for (String id in possiblePayers){
-      userIdToName[id] = await _dbService.getUserNameById(id);
-    }
-    String selectedPayer = defaultPayer;
-    return showDialog<ReceiptPreviewResult>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setState) {
-        return AlertDialog(
-          title: const Text('Preview Receipt Items'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Global payer selector
-                DropdownButtonFormField<String>(
-                  value: selectedPayer,
-                  decoration: const InputDecoration(labelText: 'Who paid?'),
-                  items: possiblePayers
-                      .map((u) => DropdownMenuItem(value: u, child: Text(userIdToName[u]!)))
-                      .toList(),
-                  onChanged: (v) => setState(() => selectedPayer = v!),
-                ),
-                if (note != null) ...[
-                  const SizedBox(height: 8),
-                  Text(note, style: Theme.of(ctx).textTheme.bodySmall),
-                ],
-                const SizedBox(height: 12),
-
-                // Editable, toggleable list
-                Expanded(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: previewItems.length,
-                    itemBuilder: (_, i) {
-                      final it = previewItems[i];
-                      return CheckboxListTile(
-                        value: it.include,
-                        onChanged: (v) => setState(() => it.include = v!),
-                        title: TextFormField(
-                          initialValue: it.description,
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                          ),
-                          onChanged: (t) => it.description = t,
-                        ),
-                        subtitle: Row(
-                          children: [
-                            Expanded(
-                              child: TextFormField(
-                                initialValue: it.total.toStringAsFixed(2),
-                                decoration: const InputDecoration(labelText: 'Total'),
-                                keyboardType: TextInputType.number,
-                                onChanged: (t) {
-                                  final p = double.tryParse(t);
-                                  if (p != null) it.total = p;
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text('×${it.qty}'),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, null),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(
-                  ctx,
-                  ReceiptPreviewResult(previewItems, selectedPayer),
-                );
-              },
-              child: const Text('Add Selected'),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-
-}
-class _ReceiptPreviewItem {
-  String description;
-  int qty;
-  double total;
-  bool include;
-
-  _ReceiptPreviewItem({
-    required this.description,
-    required this.qty,
-    required this.total,
-    this.include = true,
-  });
-}
-class ReceiptPreviewResult {
-  final List<_ReceiptPreviewItem> items;
-  final String selectedPayer;
-  ReceiptPreviewResult(this.items, this.selectedPayer);
 }

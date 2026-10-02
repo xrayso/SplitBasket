@@ -11,11 +11,15 @@ class CostcoLineItem {
   final String description;
   final int qty;
   final double total; // net of instant savings / coupons
+  final bool taxable;
+  final String itemNumber; // lets the name lookup search Costco's catalogue
 
   CostcoLineItem({
     required this.description,
     required this.qty,
     required this.total,
+    this.taxable = false,
+    this.itemNumber = '',
   });
 }
 
@@ -76,6 +80,8 @@ List<CostcoLineItem> parseCostcoItems(List<Map<String, dynamic>> rows) {
         description: prev.description,
         qty: prev.qty,
         total: _round2(prev.total + amount),
+        taxable: prev.taxable,
+        itemNumber: prev.itemNumber,
       ));
       continue;
     }
@@ -85,6 +91,8 @@ List<CostcoLineItem> parseCostcoItems(List<Map<String, dynamic>> rows) {
       description: description.isEmpty ? 'Item ${row['itemNumber'] ?? ''}' : description,
       qty: unit < 1 ? 1 : unit,
       total: _round2(amount),
+      taxable: _isTaxed(row['taxFlag']),
+      itemNumber: row['itemNumber']?.toString() ?? '',
     ));
   }
   return items;
@@ -96,6 +104,14 @@ double _toDouble(dynamic v) {
 }
 
 bool _isYes(dynamic v) => v == true || v?.toString().toUpperCase() == 'Y';
+
+/// Costco marks taxed items with a flag that may come back as a bool, "Y"/"N",
+/// or a tax-code letter; anything but empty/"N"/false counts as taxed.
+bool _isTaxed(dynamic v) {
+  if (v is bool) return v;
+  final s = v?.toString().trim().toUpperCase() ?? '';
+  return s.isNotEmpty && !const {'N', '0', 'FALSE', 'NO'}.contains(s);
+}
 
 double _round2(double v) => (v * 100).roundToDouble() / 100;
 

@@ -12,6 +12,9 @@ class Basket {
   final Map<String, double>? charges;
   final String invitationCode;
   final List<String> invitedUserIds;
+  // Sales tax from receipts imported into this basket. Only ever changed with
+  // FieldValue.increment, so it isn't written by toMap().
+  final double receiptTax;
 
   Basket({
     required this.id,
@@ -23,6 +26,7 @@ class Basket {
     this.charges,
     required this.invitationCode,
     this.invitedUserIds = const [],
+    this.receiptTax = 0,
   });
 
   // Convert Basket to Map
@@ -64,6 +68,7 @@ class Basket {
       invitationCode: map['invitationCode'] ?? '',
       invitedUserIds: map['invitedUserIds'] != null ?
       List<String>.from(map['invitedUserIds']): [],
+      receiptTax: (map['receiptTax'] as num?)?.toDouble() ?? 0,
     );
   }
   factory Basket.fromDocument(DocumentSnapshot doc, items) {
@@ -82,6 +87,7 @@ class Basket {
       invitationCode: data['invitationCode'] ?? '',
       invitedUserIds: data['invitedUserIds'] != null ?
       List<String>.from(data['invitedUserIds']): [],
+      receiptTax: (data['receiptTax'] as num?)?.toDouble() ?? 0,
     );
   }
 }

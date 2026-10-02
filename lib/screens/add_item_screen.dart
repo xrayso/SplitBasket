@@ -26,6 +26,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
   late String _addedBy;
   late String basketId;
   late String _paidBy;
+  bool _taxable = false;
   final Map<String, User> _basketUsers = {};
   bool _loading = true;
 
@@ -124,6 +125,13 @@ class _AddItemScreenState extends State<AddItemScreen> {
                   });
                 },
               ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Taxed'),
+                subtitle: const Text('Sales tax was charged on this item'),
+                value: _taxable,
+                onChanged: (v) => setState(() => _taxable = v),
+              ),
               // Added By
               SizedBox(height: 20),
               // Submit Button
@@ -150,6 +158,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
         addedBy: _addedBy,
         paidBy: _paidBy,
         userShares: {},
+        taxable: _taxable,
       );
       await _dbService.addItemToBasket(widget.basket.id, newItem);
       Navigator.pop(context);

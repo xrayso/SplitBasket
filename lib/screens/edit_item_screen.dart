@@ -21,6 +21,7 @@ class _EditItemScreenState extends State<EditItemScreen> {
   late double _price;
   late int _quantity;
   late String _paidBy;
+  late bool _taxable;
   bool _loading = true;
   final Map<String, User> _basketUsers = {};
 
@@ -32,31 +33,30 @@ class _EditItemScreenState extends State<EditItemScreen> {
     _price = widget.item.price;
     _quantity = widget.item.quantity;
     _paidBy = widget.item.paidBy;
+    _taxable = widget.item.taxable;
+    getBasketNames();
   }
   Future<void> getBasketNames() async{
     for (String userId in widget.basket.memberIds){
       _basketUsers[userId] = await _dbService.getUserById(userId);
     }
 
+    if (!mounted) return;
     setState(() {
       _loading = false;
     });
-
-
   }
 
   void _saveItem() async {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
 
-      GroceryItem updatedItem = GroceryItem(
-        id: widget.item.id,
+      GroceryItem updatedItem = widget.item.copyWith(
         name: _name,
         price: _price,
         quantity: _quantity,
-        addedBy: widget.item.addedBy,
-        userShares: widget.item.userShares,
         paidBy: _paidBy,
+        taxable: _taxable,
       );
 
       await _dbService.updateItemInBasket(widget.basket.id, updatedItem);
@@ -72,7 +72,6 @@ class _EditItemScreenState extends State<EditItemScreen> {
 
   @override
   Widget build(BuildContext context) {
-    getBasketNames();
     return Scaffold(
       appBar: AppBar(
         title: Text('Edit Item'),
@@ -132,6 +131,13 @@ class _EditItemScreenState extends State<EditItemScreen> {
                 },
               ),
 
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Taxed'),
+                subtitle: const Text('Sales tax was charged on this item'),
+                value: _taxable,
+                onChanged: (v) => setState(() => _taxable = v),
+              ),
               SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _saveItem,
