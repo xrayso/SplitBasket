@@ -30,16 +30,20 @@ const even = (...ids) => Object.fromEntries(
     ids.map((id) => [id, {share: 1 / ids.length, isManual: false}]));
 
 (async () => {
+  // Fixed IDs, so re-seeding after an emulator restart keeps the app's
+  // logged-in test session valid.
   const uid = {};
   for (const p of PEOPLE) {
-    const email = `test-${p.key}@splitbasket.test`;
-    let user;
+    uid[p.key] = `test-${p.key}`;
     try {
-      user = await admin.auth().getUserByEmail(email);
+      await admin.auth().getUser(uid[p.key]);
     } catch {
-      user = await admin.auth().createUser({email, password: PASSWORD});
+      await admin.auth().createUser({
+        uid: uid[p.key],
+        email: `test-${p.key}@splitbasket.test`,
+        password: PASSWORD,
+      });
     }
-    uid[p.key] = user.uid;
   }
 
   for (const p of PEOPLE) {

@@ -68,6 +68,9 @@ class SplitBasketApp extends StatelessWidget {
         // You can define other theme properties here
         fontFamily: 'Roboto',
         brightness: Brightness.light,
+        // The swatch-based scheme leaves chip outlines invisible, so
+        // unselected chips looked like plain text.
+        chipTheme: ChipThemeData(side: BorderSide(color: Colors.grey.shade400)),
       ),
       darkTheme: ThemeData(
         colorScheme: ColorScheme.dark(
@@ -76,6 +79,7 @@ class SplitBasketApp extends StatelessWidget {
         ),
         fontFamily: 'Roboto',
         brightness: Brightness.dark,
+        chipTheme: ChipThemeData(side: BorderSide(color: Colors.grey.shade700)),
       ),
       themeMode: ThemeMode.system, // Use system theme
       home: seenOnboarding ? AuthenticationWrapper() : OnboardingScreen(),

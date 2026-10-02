@@ -216,9 +216,10 @@ or weight line, and any discount/coupon lines applied to it).
 - description: a readable name; expand obvious abbreviations ("ORG BNNA" -> \
 "Organic Bananas") but don't invent brands or sizes.
 - qty: units bought (1 for items sold by weight).
-- total: what was actually paid for the line in dollars, after any \
-discounts, coupons or instant savings applied to it. Deposits and \
-environmental fees are their own items.
+- total: the line's price in dollars as printed, after any discounts, \
+coupons or instant savings applied to it. Never add sales tax to an item; \
+tax is reported separately. Deposits and environmental fees are their own \
+items.
 - taxable: true only when the receipt marks the item as taxed (an H, HST, \
 GST, T, or tax-code letter by the price).
 - category: the closest fit.
@@ -226,8 +227,10 @@ GST, T, or tax-code letter by the price).
 Every other line with a price (subtotal, taxes, total, payment, change, \
 savings summaries, points) goes in otherLines with its line number and kind.
 
-subtotal, tax and total: as printed; tax is all sales taxes combined. Use \
-null for any that aren't printed. store: the store name, or "".
+subtotal: the amount before tax (some stores call it "Net Sales"; a "SUB \
+TOTAL" printed after the tax line is really the total). tax: all sales \
+taxes combined. total: the amount paid. Use null for any that aren't \
+printed. store: the store name, or "".
 
 If the photo isn't a receipt or is too blurry to read, set readable to false \
 and return no items.`;
@@ -239,12 +242,19 @@ and return no items.`;
  * @return {object} itemsTotal, expected, missedLines and ok.
  */
 function checkReceipt(receipt, lines) {
+  const {subtotal, tax, total} = receipt;
   const itemsTotal = sum(receipt.items.map((i) => i.total));
-  let expected = receipt.subtotal;
-  if (expected == null && receipt.total != null) {
-    expected = round2(receipt.total - (receipt.tax || 0));
-  }
+  // What the items should add up to. The total paid minus tax is the most
+  // reliable figure: stores label "subtotal" inconsistently (Farm Boy prints
+  // "SUB TOTAL" for the amount after tax).
+  let expected = null;
+  if (total != null && tax != null) expected = round2(total - tax);
+  else if (subtotal != null) expected = subtotal;
+  else if (total != null) expected = total;
   const sumOk = expected == null || Math.abs(itemsTotal - expected) <= 0.02;
+  // Catches a "subtotal" that already includes tax.
+  const totalsOk = subtotal == null || tax == null || total == null ||
+    Math.abs(subtotal + tax - total) <= 0.02;
 
   const used = new Set([
     ...receipt.items.flatMap((i) => i.lines),
@@ -264,7 +274,9 @@ function checkReceipt(receipt, lines) {
     // Tax as a share of the taxed items, e.g. 0.13 for Ontario HST.
     taxRate: taxedTotal > 0 ? round2((receipt.tax || 0) / taxedTotal * 100) /
       100 : null,
-    ok: sumOk && missedLines.length === 0 && !untaxedButTaxCharged,
+    totalsOk,
+    ok: sumOk && totalsOk && missedLines.length === 0 &&
+      !untaxedButTaxCharged,
   };
 }
 
@@ -337,6 +349,11 @@ async function readReceipt({openai, vision, model, effort = "medium"}, photo) {
         "otherLines:\n" +
         check.missedLines.map((n) => `L${n}: ${lines[n - 1]}`).join("\n"));
     }
+    if (!check.totalsOk) {
+      problems.push(`subtotal ($${receipt.subtotal.toFixed(2)}) plus tax ` +
+        `($${receipt.tax.toFixed(2)}) should equal the total ` +
+        `($${receipt.total.toFixed(2)}). subtotal is the amount before tax.`);
+    }
     if (check.untaxedButTaxCharged) {
       problems.push(`The receipt charges $${receipt.tax.toFixed(2)} tax, ` +
         "but no item is marked taxable. Look again for tax markers " +
@@ -404,7 +421,7 @@ async function tidyNames({openai, model}, {store, items}) {
       search_context_size: "low",
       user_location: {type: "approximate", country: "CA"},
     }],
-    max_tool_calls: 8,
+    max_tool_calls: 10,
     instructions: `You turn grocery receipt text into the products people \
 actually bought. Names on receipts are abbreviated by the store's system, \
 and some include the store's item number.
@@ -413,9 +430,10 @@ For each item, in the same order, give the product name a shopper would \
 recognize (brand and product, plus size if you know it, e.g. "KS ORG EGGS" -> \
 "Kirkland Signature Organic Eggs, 24 ct") and its category.
 
-If you aren't sure what an item is, search the web, e.g. for the store's \
-item number. Search only for items you can't identify. If you still can't \
-tell, keep the receipt text as the name. Never invent a product.
+Search the web for every item you can't confidently identify, e.g. the \
+store name plus the receipt text, or the store's item number. Don't search \
+for items you already know. If you still can't tell what it is, keep the \
+receipt text as the name. Never invent a product.
 
 Return exactly ${items.length} items.`,
     input: `Items from a ${store} receipt in Canada:\n${list}`,

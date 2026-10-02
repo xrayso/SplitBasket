@@ -1,5 +1,6 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const {FieldValue} = require("firebase-admin/firestore");
 const OpenAI = require("openai");
 const vision = require("@google-cloud/vision");
 const {CATEGORIES, readReceipt, tidyNames} = require("./receipt-reader");
@@ -35,7 +36,7 @@ exports.processReceipt = withOpenAI
       const base = {
         ownerId,
         storagePath: object.name,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
       };
 
       try {
@@ -168,8 +169,8 @@ exports.getBasketByInvitationCode = functions.
         // Check if user is already a member
         if (!basketData.memberIds.includes(userId)) {
           await basketDoc.ref.update({
-            memberIds: admin.firestore.FieldValue.arrayUnion(userId),
-            memberTokens: admin.firestore.FieldValue.arrayUnion(memberToken),
+            memberIds: FieldValue.arrayUnion(userId),
+            memberTokens: FieldValue.arrayUnion(memberToken),
           });
         }
 

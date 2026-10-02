@@ -82,6 +82,16 @@ test("passes only when items add up and every priced line is used", () => {
   assert.equal(checkReceipt(noSubtotal, lines).ok, true);
   assert.ok(Math.abs(checkReceipt(noSubtotal, lines).taxRate - 0.13) < 0.005);
 
+  // A "subtotal" that already includes tax (Farm Boy's "SUB TOTAL"), with
+  // tax folded into the taxed items so they seem to add up.
+  const taxInItems = {...noSubtotal,
+    items: [item(1, 4.99), {...item(2, 7.33), taxable: true}],
+    subtotal: 12.32};
+  const folded = checkReceipt(taxInItems, lines);
+  assert.equal(folded.totalsOk, false);
+  assert.equal(folded.expected, 11.48);
+  assert.equal(folded.ok, false);
+
   // Tax charged but nothing marked taxed: the markers were missed.
   const noMarkers = {...noSubtotal, items: good.items};
   assert.equal(checkReceipt(noMarkers, lines).untaxedButTaxCharged, true);

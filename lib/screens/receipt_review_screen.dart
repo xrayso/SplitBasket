@@ -11,6 +11,9 @@ class ReceiptLine {
   String? category;
   // Store's item/PLU number, if known; used to look up the real product name.
   final String code;
+  // The name exactly as printed, shown when the readable name differs so a
+  // wrong guess is easy to spot.
+  final String receiptText;
   bool include = true;
   Set<String> people = {};
 
@@ -21,6 +24,7 @@ class ReceiptLine {
     this.taxable = false,
     this.category,
     this.code = '',
+    this.receiptText = '',
   });
 }
 
@@ -239,6 +243,10 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                   Expanded(
                     child: TextFormField(
                       initialValue: line.description,
+                      minLines: 1,
+                      maxLines: 2,
+                      keyboardType: TextInputType.text,
+                      textInputAction: TextInputAction.done,
                       decoration: const InputDecoration(
                           isDense: true, border: InputBorder.none),
                       onChanged: (t) => line.description = t,
@@ -250,10 +258,9 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                       child: Text('×${line.qty}', style: theme.textTheme.bodySmall),
                     ),
                   SizedBox(
-                    width: 76,
+                    width: 80,
                     child: TextFormField(
                       initialValue: line.total.toStringAsFixed(2),
-                      textAlign: TextAlign.end,
                       keyboardType: const TextInputType.numberWithOptions(
                           decimal: true, signed: true),
                       decoration: const InputDecoration(
@@ -266,6 +273,13 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                   ),
                 ],
               ),
+              if (line.receiptText.isNotEmpty &&
+                  line.receiptText.toLowerCase() != line.description.toLowerCase())
+                Padding(
+                  padding: const EdgeInsets.only(left: 72, bottom: 4),
+                  child: Text('On receipt: ${line.receiptText}',
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
+                ),
               if (line.include)
                 Padding(
                   padding: const EdgeInsets.only(left: 12),
@@ -276,6 +290,7 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                       for (final uid in widget.memberIds)
                         FilterChip(
                           label: Text(_firstName(uid)),
+                          showCheckmark: false,
                           selected: line.people.contains(uid),
                           visualDensity: VisualDensity.compact,
                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,

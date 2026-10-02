@@ -450,6 +450,7 @@ class _BasketScreenState extends State<BasketScreen> {
       final qty = (m['qty'] as num?)?.round() ?? 1;
       return ReceiptLine(
         description: (m['description'] ?? '').toString(),
+        receiptText: (m['receiptText'] ?? '').toString(),
         qty: qty < 1 ? 1 : qty,
         total: (m['total'] as num?)?.toDouble() ?? 0,
         taxable: m['taxable'] == true,
@@ -483,6 +484,7 @@ class _BasketScreenState extends State<BasketScreen> {
     final lines = receipt.items
         .map((i) => ReceiptLine(
               description: i.description,
+              receiptText: i.description,
               qty: i.qty,
               total: i.total,
               taxable: i.taxable,
