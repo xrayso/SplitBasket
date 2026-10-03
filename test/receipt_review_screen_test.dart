@@ -122,4 +122,24 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('add up to'), findsNothing);
   });
+
+  testWidgets('shows what was printed and the discount taken off', (tester) async {
+    await pumpReview(tester, [
+      ReceiptLine(
+        description: 'Lubriderm Unscented Lotion',
+        receiptText: 'LUBRIDERM 2PK',
+        qty: 1,
+        total: 10.99,
+        discount: 4,
+        taxable: true,
+      ),
+      ReceiptLine(description: 'Bananas', receiptText: 'BANANAS', qty: 1, total: 1.99),
+    ]);
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(r'On receipt: LUBRIDERM 2PK · $4.00 off'), findsOneWidget);
+    // Same name as printed and no discount: nothing to add.
+    expect(find.textContaining('On receipt: BANANAS'), findsNothing);
+  });
 }

@@ -3,7 +3,8 @@ const admin = require("firebase-admin");
 const {FieldValue} = require("firebase-admin/firestore");
 const OpenAI = require("openai");
 const vision = require("@google-cloud/vision");
-const {CATEGORIES, readReceipt, tidyNames} = require("./receipt-reader");
+const {CATEGORIES, foldDiscounts, readReceipt, tidyNames} =
+    require("./receipt-reader");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -53,16 +54,18 @@ exports.processReceipt = withOpenAI
           await receipts.add({...base, error: "unreadable"});
           return null;
         }
+        // Discounts come off the item they're for, not as items of their own.
+        const items = foldDiscounts(receipt.items);
 
         // Readable names; the model's own guesses are a fine fallback.
-        let names = receipt.items.map((i) => ({
+        let names = items.map((i) => ({
           name: i.description,
           category: i.category,
         }));
         try {
           ({items: names} = await tidyNames({openai, model: MODEL}, {
             store: receipt.store || "grocery store",
-            items: receipt.items.map((i) => ({
+            items: items.map((i) => ({
               text: i.receiptText,
               code: i.code,
             })),
@@ -85,7 +88,7 @@ exports.processReceipt = withOpenAI
           // app warns so the user can fix the list before adding it.
           checked: check.ok,
         });
-        receipt.items.forEach((item, index) => {
+        items.forEach((item, index) => {
           const qty = Math.max(1, item.qty);
           batch.set(receiptRef.collection("items").doc(), {
             index,
@@ -94,12 +97,13 @@ exports.processReceipt = withOpenAI
             qty,
             unitPrice: item.total / qty,
             total: item.total,
+            discount: item.discount,
             taxable: item.taxable,
             category: names[index].category || item.category,
           });
         });
         await batch.commit();
-        console.log(`Read ${receipt.items.length} items → ${receiptRef.id}` +
+        console.log(`Read ${items.length} items → ${receiptRef.id}` +
           ` (checked: ${check.ok})`);
       } catch (err) {
         console.error("Couldn't read receipt", object.name, err);

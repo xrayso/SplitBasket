@@ -111,7 +111,9 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
           children: [
             CircularProgressIndicator(),
             SizedBox(width: 16),
-            Flexible(child: Text("Reading your receipt…")),
+            Flexible(
+              child: Text("Reading your receipt…\nThis can take up to a minute."),
+            ),
           ],
         ),
       ),
@@ -263,62 +265,87 @@ class _ScanReceiptScreenState extends State<ScanReceiptScreen>
     ),
   );
 
-  /* Polished preview UI */
-  /* Polished preview UI with help button */
+  /* Preview of the photo, before it's sent */
+  void _retake() {
+    setState(() {
+      _captured = null;
+      if (_controller != null) _enterImmersive();
+    });
+  }
+
   Widget _previewView() => Scaffold(
     backgroundColor: Colors.black,
     appBar: AppBar(
-      backgroundColor: Colors.white,
-      elevation: 0,
+      backgroundColor: Colors.black,
+      foregroundColor: Colors.white,
+      systemOverlayStyle: SystemUiOverlayStyle.light,
       leading: IconButton(
         icon: const Icon(Icons.close),
-        color: Colors.red,
-        onPressed: () {
-          setState(() {
-            _captured = null;
-            _enterImmersive();
-          });
-        },
+        tooltip: 'Retake',
+        onPressed: _retake,
       ),
+      title: const Text('Use this photo?'),
       actions: [
-        /* HELP */
         IconButton(
           icon: const Icon(Icons.help_outline),
-          color: Colors.blue,
           tooltip: 'How to take a good photo',
           onPressed: () {
             showDialog(
               context: context,
               builder: (_) => const AlertDialog(
-                title: Text('Photo quality tips'),
+                title: Text('Photo tips'),
                 content: Text(
-                  'Make sure the receipt is well‑lit, flat, and fills most of the frame. '
-                      'Blurred or dim shots may not be processed correctly.',
+                  'Lay the receipt flat in good light and fit the whole thing '
+                  'in the frame, from the store name down to the total. '
+                  'For a long receipt, a slightly farther shot is fine.',
                 ),
               ),
             );
           },
         ),
-
-        /* SEND */
-        IconButton(
-          icon: const Icon(Icons.check),
-          color: Colors.green,
-          onPressed: _send,
-        ),
       ],
     ),
     body: SafeArea(
-      child: Center(
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Image.file(
-            File(_captured!.path),
-            fit: BoxFit.contain,
-            width: double.infinity,
-            height: double.infinity,
+      child: Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Image.file(
+                  File(_captured!.path),
+                  fit: BoxFit.contain,
+                  width: double.infinity,
+                ),
+              ),
+            ),
           ),
-        ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white54),
+                    ),
+                    onPressed: _retake,
+                    child: const Text('Retake'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _send,
+                    child: const Text('Use photo'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     ),
   );

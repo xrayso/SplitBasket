@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../widgets/auth_layout.dart';
 import 'main_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -20,7 +21,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _errorMessage;
 
   void _register() async {
-
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
       if (_password != _confirmPassword) {
@@ -35,103 +35,119 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _errorMessage = null;
       });
 
-
-        final String authenticatedMessage = await _authService.register(_email, _password, _userName);
-        // Navigate to HomeScreen after successful registration
-        if (authenticatedMessage == "Success") {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (context) => MainScreen()),
-                (route) => false,
-          );
-        }else{
-          setState(() {
-            _errorMessage = authenticatedMessage;
-          });
-        }
+      final String authenticatedMessage =
+          await _authService.register(_email.trim(), _password, _userName.trim());
+      if (!mounted) return;
+      // Navigate to HomeScreen after successful registration
+      if (authenticatedMessage == "Success") {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => MainScreen()),
+          (route) => false,
+        );
+      } else {
+        setState(() {
+          _errorMessage = authenticatedMessage;
+        });
       }
+    }
+    if (mounted) {
       setState(() {
         _isLoading = false;
       });
     }
-
+  }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
-        appBar: AppBar(
-          title: Text('Register'),
-        ),
-        body: SingleChildScrollView(
-          child: Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  // Email Field
-                  TextFormField(
-                    decoration: InputDecoration(labelText: 'Email'),
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (value) =>
-                    value!.isEmpty ? 'Enter your email' : null,
-                    onSaved: (value) => _email = value!,
+      appBar: AppBar(),
+      body: SafeArea(
+        top: false,
+        child: Form(
+          key: _formKey,
+          child: AutofillGroup(
+            child: AuthLayout(
+              title: 'Create your account',
+              subtitle: 'Friends find you by your username.',
+              children: [
+                TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Username',
+                    prefixIcon: Icon(Icons.person_outline),
                   ),
-                  TextFormField(
-                    decoration: InputDecoration(labelText: 'Username'),
-                    keyboardType: TextInputType.name,
-                    validator: (value) =>
-                    value!.isEmpty ? 'Enter your username' : null,
-                    onSaved: (value) => _userName = value!,
+                  keyboardType: TextInputType.name,
+                  textCapitalization: TextCapitalization.words,
+                  autofillHints: const [AutofillHints.username],
+                  textInputAction: TextInputAction.next,
+                  validator: (value) =>
+                      value!.trim().isEmpty ? 'Enter a username' : null,
+                  onSaved: (value) => _userName = value!,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    prefixIcon: Icon(Icons.mail_outline),
                   ),
-                  // Password Field
-                  TextFormField(
-                    decoration: InputDecoration(labelText: 'Password'),
-                    obscureText: true,
-                    validator: (value) =>
-                    value!.isEmpty ? 'Enter your password' : null,
-                    onSaved: (value) => _password = value!,
+                  keyboardType: TextInputType.emailAddress,
+                  autofillHints: const [AutofillHints.email],
+                  autocorrect: false,
+                  textInputAction: TextInputAction.next,
+                  validator: (value) =>
+                      value!.trim().isEmpty ? 'Enter your email' : null,
+                  onSaved: (value) => _email = value!,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: Icon(Icons.lock_outline),
                   ),
-                  // Confirm Password Field
-                  TextFormField(
-                    decoration:
-                    InputDecoration(labelText: 'Confirm Password'),
-                    obscureText: true,
-                    validator: (value) =>
-                    value!.isEmpty ? 'Confirm your password' : null,
-                    onSaved: (value) => _confirmPassword = value!,
+                  obscureText: true,
+                  autofillHints: const [AutofillHints.newPassword],
+                  textInputAction: TextInputAction.next,
+                  validator: (value) =>
+                      value!.isEmpty ? 'Enter a password' : null,
+                  onSaved: (value) => _password = value!,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm password',
+                    prefixIcon: Icon(Icons.lock_outline),
                   ),
-                  SizedBox(height: 20),
-                  // Register Button
-                  ElevatedButton(
-                    onPressed: _isLoading ? null : _register,
-                    child: _isLoading
-                        ? CircularProgressIndicator(
-                      valueColor:
-                      AlwaysStoppedAnimation<Color>(Colors.white),
-                    )
-                        : Text('Register'),
-                  ),
-                  // Error Message
-                  if (_errorMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Text(
-                        _errorMessage!,
-                        style: TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  // Navigate to Login
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
-                    child: Text('Already have an account? Login'),
+                  obscureText: true,
+                  autofillHints: const [AutofillHints.newPassword],
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _register(),
+                  validator: (value) =>
+                      value!.isEmpty ? 'Confirm your password' : null,
+                  onSaved: (value) => _confirmPassword = value!,
+                ),
+                if (_errorMessage != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _errorMessage!,
+                    style: TextStyle(color: theme.colorScheme.error),
                   ),
                 ],
-              ),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: _isLoading ? null : _register,
+                  child: _isLoading ? const ButtonSpinner() : const Text('Create account'),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Already have an account? Sign in'),
+                ),
+              ],
             ),
           ),
-        ));
+        ),
+      ),
+    );
   }
 }

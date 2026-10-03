@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {wordsToLines, priceLines, checkReceipt} = require("../receipt-reader");
+const {
+  wordsToLines, priceLines, checkReceipt, foldDiscounts,
+} = require("../receipt-reader");
 
 /**
  * Builds an OCR word box, optionally tilted around the origin.
@@ -96,4 +98,42 @@ test("passes only when items add up and every priced line is used", () => {
   const noMarkers = {...noSubtotal, items: good.items};
   assert.equal(checkReceipt(noMarkers, lines).untaxedButTaxCharged, true);
   assert.equal(checkReceipt(noMarkers, lines).ok, false);
+});
+
+const scanned = (lines, receiptText, code, total, extra = {}) => ({
+  lines, receiptText, code, description: receiptText, qty: 1, total,
+  discount: 0, taxable: false, category: "other", ...extra,
+});
+
+test("folds discounts left as items into the item they're for", () => {
+  const items = foldDiscounts([
+    scanned([10], "LUBRIDERM", "1234567", 14.99, {taxable: true}),
+    scanned([11], "ORG SPINACH", "7654321", 4.99),
+    scanned([12], "TPD/1234567", "345678", -4),
+    scanned([13], "ORAL-B BRUSH", "1111111", 16.99, {taxable: true}),
+    scanned([14], "/ 1111111", "", -4),
+    scanned([15], "KS EGGS", "", 9.49),
+    scanned([16], "INSTANT SAVINGS", "", -1.5),
+  ]);
+  assert.deepEqual(items.map((i) => [i.receiptText, i.total, i.discount]), [
+    ["LUBRIDERM", 10.99, 4],
+    ["ORG SPINACH", 4.99, 0],
+    ["ORAL-B BRUSH", 12.99, 4],
+    ["KS EGGS", 7.99, 1.5],
+  ]);
+  assert.deepEqual(items[0].lines, [10, 12]);
+  assert.equal(items[0].taxable, true);
+});
+
+test("keeps order-wide discounts and returns as their own lines", () => {
+  const items = foldDiscounts([
+    scanned([3], "EMPLOYEE DISCOUNT 10%", "", -5),
+    scanned([5], "MILK", "", 6.49, {discount: 1}),
+    scanned([6], "BOTTLE RETURN", "", -0.1),
+  ]);
+  assert.deepEqual(items.map((i) => [i.receiptText, i.total, i.discount]), [
+    ["EMPLOYEE DISCOUNT 10%", -5, 0],
+    ["MILK", 6.49, 1],
+    ["BOTTLE RETURN", -0.1, 0],
+  ]);
 });

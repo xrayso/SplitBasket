@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -9,7 +7,6 @@ import 'friends_list_screen.dart';
 import 'charges_screen.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
-import 'package:badges/badges.dart' as badges;
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 FlutterLocalNotificationsPlugin();
@@ -27,6 +24,11 @@ class _MainScreenState extends State<MainScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
   late PageController _pageController;
+  // Created once, so switching tabs doesn't re-subscribe (and blink the badges).
+  late final Stream<int> _pendingCharges =
+      _dbService.getPendingRequestCount(_authService.currentUser!.uid);
+  late final Stream<int> _friendRequests =
+      _dbService.getFriendRequestCount(_authService.currentUser!.uid);
 
   @override
   void initState() {
@@ -105,7 +107,6 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currentUserId = _authService.currentUser!.uid;
 
     return Scaffold(
       body: PageView(
@@ -120,18 +121,24 @@ class _MainScreenState extends State<MainScreen> {
         ],
       ),
       bottomNavigationBar: StreamBuilder<int>(
-        stream: _dbService.getPendingRequestCount(currentUserId),
+        stream: _pendingCharges,
         builder: (context, snapshot) {
-          int pendingChargesCount = snapshot.data ?? 0;
+          final pendingChargesCount = snapshot.data ?? 0;
 
           return StreamBuilder<int>(
-            stream: _dbService.getFriendRequestCount(currentUserId),
+            stream: _friendRequests,
             builder: (context, friendSnapshot) {
-              int friendRequestCount = friendSnapshot.data ?? 0;
+              final friendRequestCount = friendSnapshot.data ?? 0;
 
-              return BottomNavigationBar(
-                currentIndex: _currentIndex,
-                onTap: (index) {
+              Widget withBadge(IconData icon, int count) => Badge(
+                    isLabelVisible: count > 0,
+                    label: Text('$count'),
+                    child: Icon(icon),
+                  );
+
+              return NavigationBar(
+                selectedIndex: _currentIndex,
+                onDestinationSelected: (index) {
                   setState(() => _currentIndex = index);
                   _pageController.animateToPage(
                     index,
@@ -139,33 +146,22 @@ class _MainScreenState extends State<MainScreen> {
                     curve: Curves.easeInOut,
                   );
                 },
-                items: [
-                  const BottomNavigationBarItem(
-                    icon: Icon(Icons.home),
+                destinations: [
+                  const NavigationDestination(
+                    icon: Icon(Icons.shopping_basket_outlined),
+                    selectedIcon: Icon(Icons.shopping_basket),
                     label: 'Baskets',
                   ),
-                  BottomNavigationBarItem(
-                    icon: friendRequestCount > 0
-                        ? badges.Badge(
-                      badgeContent: Text(
-                        friendRequestCount.toString(),
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      child: const Icon(Icons.people),
-                    )
-                        : const Icon(Icons.people),
+                  NavigationDestination(
+                    icon: withBadge(Icons.people_outline, friendRequestCount),
+                    selectedIcon: withBadge(Icons.people, friendRequestCount),
                     label: 'Friends',
                   ),
-                  BottomNavigationBarItem(
-                    icon: pendingChargesCount > 0
-                        ? badges.Badge(
-                      badgeContent: Text(
-                        pendingChargesCount.toString(),
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      child: const Icon(Icons.receipt),
-                    )
-                        : const Icon(Icons.receipt),
+                  NavigationDestination(
+                    icon: withBadge(Icons.account_balance_wallet_outlined,
+                        pendingChargesCount),
+                    selectedIcon: withBadge(
+                        Icons.account_balance_wallet, pendingChargesCount),
                     label: 'Charges',
                   ),
                 ],

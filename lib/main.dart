@@ -5,13 +5,13 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:split_basket/screens/login_screen.dart';
 import 'package:split_basket/screens/register_screen.dart';
 import 'package:split_basket/services/auth_service.dart';
 import 'package:split_basket/services/notification_service.dart';
 import 'screens/main_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Initialize Firebase and other necessary services
@@ -53,35 +53,12 @@ class SplitBasketApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Define your color scheme
-    final ColorScheme colorScheme = ColorScheme.fromSwatch(
-      primarySwatch: Colors.teal,
-      accentColor: Colors.orangeAccent,
-    );
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'SplitBasket',
-      theme: ThemeData(
-        colorScheme: colorScheme,
-        primaryColor: colorScheme.primary,
-        // You can define other theme properties here
-        fontFamily: 'Roboto',
-        brightness: Brightness.light,
-        // The swatch-based scheme leaves chip outlines invisible, so
-        // unselected chips looked like plain text.
-        chipTheme: ChipThemeData(side: BorderSide(color: Colors.grey.shade400)),
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.dark(
-          primary: Colors.teal,
-          secondary: Colors.orangeAccent,
-        ),
-        fontFamily: 'Roboto',
-        brightness: Brightness.dark,
-        chipTheme: ChipThemeData(side: BorderSide(color: Colors.grey.shade700)),
-      ),
-      themeMode: ThemeMode.system, // Use system theme
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
       home: seenOnboarding ? AuthenticationWrapper() : OnboardingScreen(),
       routes: {
         '/login': (context) => LoginScreen(),

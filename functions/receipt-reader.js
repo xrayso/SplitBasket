@@ -171,11 +171,12 @@ const RECEIPT_SCHEMA = {
           description: {type: "string"},
           qty: {type: "integer"},
           total: {type: "number"},
+          discount: {type: "number"},
           taxable: {type: "boolean"},
           category: {type: "string", enum: CATEGORIES},
         },
         required: ["lines", "receiptText", "code", "description", "qty",
-          "total", "taxable", "category"],
+          "total", "discount", "taxable", "category"],
         additionalProperties: false,
       },
     },
@@ -220,9 +221,18 @@ or weight line, and any discount/coupon lines applied to it).
 coupons or instant savings applied to it. Never add sales tax to an item; \
 tax is reported separately. Deposits and environmental fees are their own \
 items.
+- discount: what those discounts, coupons and instant savings took off the \
+item, as a positive number (0 if none).
 - taxable: true only when the receipt marks the item as taxed (an H, HST, \
 GST, T, or tax-code letter by the price).
 - category: the closest fit.
+
+A discount line is never an item of its own: it belongs to the item it \
+discounts. Costco prints one as e.g. "TPD/1234567" or "/1234567" (the item \
+number it discounts) with a minus sign, usually right under that item; other \
+stores print "INSTANT SAVINGS", "COUPON" or "SALE" under the item. Only a \
+discount on the whole order, not one item, is its own item, with a negative \
+total.
 
 Every other line with a price (subtotal, taxes, total, payment, change, \
 savings summaries, points) goes in otherLines with its line number and kind.
@@ -373,6 +383,54 @@ async function readReceipt({openai, vision, model, effort = "medium"}, photo) {
   return {receipt, lines, check, usage};
 }
 
+// A discount the model listed as its own item, when it names the item it
+// belongs to ("TPD/1234567", "/1234567", "/AAA BATTERY") or is a plain
+// item-level saving printed under it ("INSTANT SAVINGS", "COUPON").
+const ITEM_DISCOUNT =
+    /\/|^\s*(TPD|INST(ANT)?\.? ?SAV|SAVINGS|COUPON|CPN|MFR|MCP|DISC|SALE)/i;
+
+/**
+ * Folds item discounts the model left as negative items into the item they
+ * discount, so each item's total is what was actually paid for it. A
+ * discount is matched by the item number or name after its "/", otherwise
+ * to the item printed just above it; one with nothing to attach to (an
+ * order-wide coupon) stays as its own line.
+ * @param {Array<object>} items The model's items.
+ * @return {Array<object>} Items, with discount set on the ones discounted.
+ */
+function foldDiscounts(items) {
+  const firstLine = (i) => (i.lines.length ? Math.min(...i.lines) : Infinity);
+  const all = items.map((i) => ({...i, lines: [...i.lines],
+    discount: Math.max(0, i.discount || 0)}));
+  const isDiscount = (i) => i.total < 0 && ITEM_DISCOUNT.test(i.receiptText);
+  const regular = all.filter((i) => !isDiscount(i) && i.total > 0);
+  const folded = new Set();
+
+  for (const d of all.filter(isDiscount)) {
+    const slash = d.receiptText.lastIndexOf("/");
+    const ref = slash >= 0 ?
+      d.receiptText.slice(slash + 1).trim().toUpperCase() : "";
+    let parent;
+    if (/^\d+$/.test(ref)) {
+      parent = regular.find((i) => i.code && Number(i.code) === Number(ref));
+    } else if (ref) {
+      parent = regular.find((i) => i.receiptText.toUpperCase().includes(ref));
+    }
+    if (!parent) {
+      const at = firstLine(d);
+      parent = regular
+          .filter((i) => firstLine(i) < at)
+          .sort((a, b) => firstLine(b) - firstLine(a))[0];
+    }
+    if (!parent) continue;
+    parent.total = round2(parent.total + d.total);
+    parent.discount = round2(parent.discount - d.total);
+    parent.lines.push(...d.lines);
+    folded.add(d);
+  }
+  return all.filter((i) => !folded.has(i));
+}
+
 // ── 5. Readable names, with web search ────────────────────────────────────
 
 const NAMES_SCHEMA = {
@@ -432,8 +490,10 @@ recognize (brand and product, plus size if you know it, e.g. "KS ORG EGGS" -> \
 
 Search the web for every item you can't confidently identify, e.g. the \
 store name plus the receipt text, or the store's item number. Don't search \
-for items you already know. If you still can't tell what it is, keep the \
-receipt text as the name. Never invent a product.
+for items you already know. If you still can't tell exactly what it is, \
+expand only the obvious abbreviations ("ORG SPINACH" -> "Organic Spinach") \
+and keep the rest of the receipt's wording. Never invent a brand, product or \
+size that isn't on the receipt or in your search results.
 
 Return exactly ${items.length} items.`,
     input: `Items from a ${store} receipt in Canada:\n${list}`,
@@ -471,6 +531,7 @@ module.exports = {
   ocrLines,
   priceLines,
   checkReceipt,
+  foldDiscounts,
   readReceipt,
   tidyNames,
 };

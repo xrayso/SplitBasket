@@ -102,4 +102,19 @@ void main() {
     expect(items[1].needsSomeone, isTrue);
     expect(shareTotalFor('sam', items), 3.0);
   });
+
+  test('taxShareFor matches what finalizing charges', () {
+    final items = [
+      item('Soap', 10, evenShares(['host', 'sam']), taxable: true),
+      item('Lotion', 30, {'host': {'share': 0.25, 'isManual': true},
+          'sam': {'share': 0.75, 'isManual': false}}, taxable: true),
+      item('Spinach', 5, evenShares(['host', 'sam'])),
+    ];
+    // $4 of tax on $40 of taxed items: soap carries $1, lotion $3.
+    expect(taxShareFor('host', items, 4.0), closeTo(0.5 + 0.75, 1e-9));
+    expect(taxShareFor('sam', items, 4.0), closeTo(0.5 + 2.25, 1e-9));
+    expect(taxShareFor('sam', items, 4.0),
+        closeTo(owedBy(computeCharges(items, 4.0), 'sam', tax: true), 1e-9));
+    expect(taxShareFor('sam', items, 0), 0);
+  });
 }

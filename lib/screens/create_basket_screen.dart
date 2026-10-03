@@ -1,6 +1,5 @@
 import 'dart:math';
 
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/basket.dart';
@@ -51,26 +50,42 @@ class _CreateBasketScreenState extends State<CreateBasketScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Create Basket'),
+        title: const Text('New Basket'),
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                decoration: InputDecoration(labelText: 'Basket Name'),
-                validator: (value) =>
-                value == null || value.isEmpty ? 'Enter a basket name' : null,
-                onSaved: (value) => _basketName = value!,
-              ),
-              SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _createBasket,
-                child: Text('Create'),
-              ),
-            ],
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextFormField(
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  textInputAction: TextInputAction.done,
+                  decoration: const InputDecoration(
+                    labelText: 'Basket name',
+                    hintText: 'e.g. Costco run',
+                  ),
+                  validator: (value) =>
+                      value == null || value.trim().isEmpty ? 'Enter a basket name' : null,
+                  onSaved: (value) => _basketName = value!.trim(),
+                  onFieldSubmitted: (_) => _createBasket(),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "You'll be the host. Invite friends from the basket's Members tab.",
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: _createBasket,
+                  child: const Text('Create basket'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

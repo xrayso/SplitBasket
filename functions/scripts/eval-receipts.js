@@ -14,7 +14,8 @@ const path = require("path");
 const {execFileSync} = require("child_process");
 const OpenAI = require("openai");
 const vision = require("@google-cloud/vision");
-const {readReceipt, tidyNames} = require("../receipt-reader");
+const {foldDiscounts, readReceipt, tidyNames} =
+    require("../receipt-reader");
 
 // $ per 1M tokens (input, output). Web search: $10 per 1K calls.
 const PRICES = {
@@ -84,11 +85,13 @@ const money = (n) => (n == null ? "—" : `$${n.toFixed(2)}`);
     try {
       const {receipt, lines, check, usage} = await readReceipt(
           {openai, vision: ocr, model, effort}, loadPhoto(file));
+      // As processReceipt does: discounts come off the item they're for.
+      const items = receipt.readable ? foldDiscounts(receipt.items) : [];
       let names = null;
-      if (withNames && receipt.readable && receipt.items.length) {
+      if (withNames && items.length) {
         names = await tidyNames({openai, model}, {
           store: receipt.store || "grocery store",
-          items: receipt.items.map((i) => ({
+          items: items.map((i) => ({
             text: i.receiptText,
             code: i.code,
           })),
@@ -109,25 +112,27 @@ const money = (n) => (n == null ? "—" : `$${n.toFixed(2)}`);
       }
       if (check.ok) passed++;
       console.log(`Store: ${receipt.store || "?"} · ${lines.length} OCR ` +
-        `lines · ${receipt.items.length} items · attempt(s): ` +
+        `lines · ${items.length} items · attempt(s): ` +
         `${usage.attempts} · ${seconds}s · ≈$${cost.toFixed(4)}` +
         (names ? ` · ${names.usage.searches} web search(es)` : ""));
       console.log(`${check.ok ? "✓" : "✗"} items ${money(check.itemsTotal)} ` +
         `vs subtotal ${money(check.expected)}` +
         (check.missedLines.length ?
           ` · unused priced lines: ${check.missedLines.join(", ")}` : ""));
-      receipt.items.forEach((item, i) => {
+      items.forEach((item, i) => {
         const shown = names ? names.items[i].name : item.description;
         console.log(`  ${String(i + 1).padStart(2)}. ` +
           `[L${item.lines.join(",L")}] ${item.receiptText} → ${shown}` +
           ` · ${item.qty} × ${money(item.total)}` +
+          `${item.discount ? ` (${money(item.discount)} off)` : ""}` +
           `${item.taxable ? " · taxed" : ""}`);
       });
       console.log(`  subtotal ${money(receipt.subtotal)} · tax ` +
         `${money(receipt.tax)} · total ${money(receipt.total)}`);
 
       fs.writeFileSync(path.join(resultsDir, `${model}-${name}.json`),
-          JSON.stringify({receipt, names, lines, check, usage}, null, 2));
+          JSON.stringify({receipt, items, names, lines, check, usage}, null,
+              2));
     } catch (err) {
       console.log(`✗ Failed: ${err.message}`);
     }

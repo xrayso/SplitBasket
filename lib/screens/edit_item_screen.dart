@@ -19,10 +19,10 @@ class _EditItemScreenState extends State<EditItemScreen> {
   final DatabaseService _dbService = DatabaseService();
   late String _name;
   late double _price;
+  late final String _priceText = widget.item.price.toStringAsFixed(2);
   late int _quantity;
   late String _paidBy;
   late bool _taxable;
-  bool _loading = true;
   final Map<String, User> _basketUsers = {};
 
   @override
@@ -41,10 +41,7 @@ class _EditItemScreenState extends State<EditItemScreen> {
       _basketUsers[userId] = await _dbService.getUserById(userId);
     }
 
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-    });
+    if (mounted) setState(() {});
   }
 
   void _saveItem() async {
@@ -66,85 +63,119 @@ class _EditItemScreenState extends State<EditItemScreen> {
   }
 
   void _deleteItem() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${widget.item.name}?'),
+        content: const Text("It'll be removed from the basket for everyone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok != true) return;
     await _dbService.deleteItemFromBasket(widget.basket.id, widget.item.id);
-    Navigator.pop(context);
+    if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Edit Item'),
+        title: const Text('Edit Item'),
         actions: [
           IconButton(
-            icon: Icon(Icons.delete),
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Delete item',
             onPressed: _deleteItem,
           ),
         ],
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              // Item Name
-              TextFormField(
-                initialValue: _name,
-                decoration: InputDecoration(labelText: 'Item Name'),
-                validator: (value) =>
-                value == null || value.isEmpty ? 'Enter item name' : null,
-                onSaved: (value) => _name = value!,
-              ),
-              // Price
-              TextFormField(
-                initialValue: _price.toString(),
-                decoration: InputDecoration(labelText: 'Price'),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                validator: (value) =>
-                value == null || value.isEmpty ? 'Enter price' : null,
-                onSaved: (value) => _price = double.parse(value!),
-              ),
-              // Quantity
-              TextFormField(
-                initialValue: _quantity.toString(),
-                decoration: InputDecoration(labelText: 'Quantity'),
-                keyboardType: TextInputType.number,
-                validator: (value) =>
-                value == null || value.isEmpty ? 'Enter quantity' : null,
-                onSaved: (value) => _quantity = int.parse(value!),
-              ),
-
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Paid By'),
-                value: widget.item.paidBy, // Current selection
-                items: widget.basket.memberIds.map((userIds) {
-                  return DropdownMenuItem<String>(
-                    value: userIds,
-                    child: Text(_basketUsers[userIds]?.userName ?? ""),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  setState(() {
-                    _paidBy = val!;
-                  });
-                },
-              ),
-
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Taxed'),
-                subtitle: const Text('Sales tax was charged on this item'),
-                value: _taxable,
-                onChanged: (v) => setState(() => _taxable = v),
-              ),
-              SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _saveItem,
-                child: Text('Save Changes'),
-              ),
-            ],
-          ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextFormField(
+              initialValue: _name,
+              textCapitalization: TextCapitalization.sentences,
+              minLines: 1,
+              maxLines: 3,
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(labelText: 'Item name'),
+              validator: (value) =>
+                  value == null || value.trim().isEmpty ? 'Enter item name' : null,
+              onSaved: (value) => _name = value!.trim(),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextFormField(
+                    initialValue: _priceText,
+                    decoration: const InputDecoration(
+                        labelText: 'Price (each)', prefixText: '\$'),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true, signed: true),
+                    validator: (value) =>
+                        double.tryParse(value ?? '') == null ? 'Enter a price' : null,
+                    // Untouched, keep the exact price (e.g. 3 for \$13 is
+                    // 4.333…), so saving other changes doesn't round it.
+                    onSaved: (value) {
+                      if (value != _priceText) _price = double.parse(value!);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    initialValue: _quantity.toString(),
+                    decoration: const InputDecoration(labelText: 'Quantity'),
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      final qty = int.tryParse(value ?? '');
+                      return qty == null || qty < 1 ? 'At least 1' : null;
+                    },
+                    onSaved: (value) => _quantity = int.parse(value!),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: 'Paid by'),
+              initialValue: widget.item.paidBy,
+              items: widget.basket.memberIds.map((userIds) {
+                return DropdownMenuItem<String>(
+                  value: userIds,
+                  child: Text(_basketUsers[userIds]?.userName ?? '…'),
+                );
+              }).toList(),
+              onChanged: (val) {
+                setState(() {
+                  _paidBy = val!;
+                });
+              },
+            ),
+            const SizedBox(height: 4),
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+              title: const Text('Taxed'),
+              subtitle: const Text('Sales tax was charged on this item'),
+              value: _taxable,
+              onChanged: (v) => setState(() => _taxable = v),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _saveItem,
+              child: const Text('Save changes'),
+            ),
+          ],
         ),
       ),
     );

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:badges/badges.dart' as badges;
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/basket.dart';
-import '../models/user.dart';
+import '../theme.dart';
+import '../widgets/ui.dart';
 import 'basket_screen.dart';
 import 'create_basket_screen.dart';
 import 'pending_invitations_screen.dart';
@@ -20,151 +20,202 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
+  late final String _uid = _authService.currentUser!.uid;
+  // Created once, so rebuilding the screen doesn't re-download everything.
+  late final Stream<List<Basket>> _baskets = _dbService.getUserBaskets(_uid);
+  late final Stream<List<Basket>> _invitations = _dbService.getInvitedBaskets(_uid);
+
+  String _myName = '';
+  Map<String, String> _hostNames = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _dbService.getUserNameById(_uid).then((name) {
+      if (mounted) setState(() => _myName = name);
+    });
+  }
+
+  void _loadHostNames(List<Basket> baskets) {
+    final ids = baskets.map((b) => b.hostId).where((id) => id != _uid).toSet();
+    if (ids.every(_hostNames.containsKey)) return;
+    _dbService.getUserNames(ids).then((names) {
+      if (mounted) setState(() => _hostNames = {..._hostNames, ...names});
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final currentUserId = _authService.currentUser!.uid;
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Your Baskets'),
+        title: const Text('Your Baskets'),
         actions: [
-          // Profile Icon
           IconButton(
-            icon: Icon(Icons.logout),
-            onPressed: _logout
+            tooltip: 'Profile',
+            icon: _myName.isEmpty
+                ? const Icon(Icons.account_circle_outlined)
+                : PersonAvatar(name: _myName, radius: 15),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => ProfileScreen()),
+            ),
           ),
-          IconButton(
-            icon: Icon(Icons.person),
-            onPressed: (){
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => ProfileScreen()),
-              );
-            }
-          ),
+          const SizedBox(width: 8),
         ],
       ),
-      body: FutureBuilder<User>(
-        future: _dbService.getUserById(currentUserId),
-        builder: (context, userSnapshot) {
-          if (!userSnapshot.hasData) {
-            return Center(child: CircularProgressIndicator());
+      body: StreamBuilder<List<Basket>>(
+        stream: _baskets,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const EmptyState(
+              icon: Icons.cloud_off_outlined,
+              title: "Couldn't load your baskets",
+              message: 'Check your connection and try again.',
+            );
           }
-          User currentUser = userSnapshot.data!;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final baskets = snapshot.data!;
+          _loadHostNames(baskets);
+
+          return ListView(
+            padding: const EdgeInsets.only(top: 4, bottom: 96),
             children: [
-              // Welcome Header
-              Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  'Welcome, ${currentUser.userName}!',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              // Pending Invitations Badge
-              StreamBuilder<List<Basket>>(
-                stream: _dbService.getInvitedBaskets(currentUserId),
-                builder: (context, snapshot) {
-                  int invitationCount = 0;
-                  if (snapshot.hasData) {
-                    invitationCount = snapshot.data!.length;
-                  }
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) =>
-                                  PendingInvitationsScreen()),
-                        );
-                      },
-                      child: badges.Badge(
-                        badgeStyle: badges.BadgeStyle(
-                          badgeColor: Colors.blue
-                        ),
-                        showBadge: invitationCount > 0,
-                        position:
-                        badges.BadgePosition.topEnd(top: 23, end: 145),
-                        child: ListTile(
-                          leading: Icon(Icons.group_add),
-                          title: Text('Basket Invitations'),
-                          trailing: Icon(Icons.arrow_forward_ios),
-                        ),
-                      ),
+              _invitationBanner(),
+              if (baskets.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 64),
+                  child: EmptyState(
+                    icon: Icons.shopping_basket_outlined,
+                    title: 'No baskets yet',
+                    message: 'Start one for your next shop, or join a '
+                        "friend's basket with their invite code.",
+                    action: FilledButton.icon(
+                      icon: const Icon(Icons.add),
+                      label: const Text('New basket'),
+                      onPressed: _showJoinBasketOptions,
                     ),
-                  );
-                },
-              ),
-              // Baskets List
-              Expanded(
-                child: StreamBuilder<List<Basket>>(
-                  stream: _dbService.getUserBaskets(currentUserId),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return Center(
-                          child: Text('Error: ${snapshot.error}'));
-                    }
-                    if (!snapshot.hasData) {
-                      return Center(child: CircularProgressIndicator());
-                    }
-
-                    final baskets = snapshot.data!;
-                    if (baskets.isEmpty) {
-                      return Center(
-                          child: Text('You are not part of any baskets.'));
-                    }
-
-                    return ListView.builder(
-                      itemCount: baskets.length,
-                      itemBuilder: (context, index) {
-                        final basket = baskets[index];
-                        return FutureBuilder<String>(
-                          future: _getBasketHostFromId(basket.hostId),
-                          builder: (context, userSnapshot) {
-                            String hostName = 'Loading...';
-                            if (userSnapshot.hasData) {
-                              hostName = userSnapshot.data!;
-                            }
-                            return Card(
-                              elevation: 2.0,
-                              margin: EdgeInsets.symmetric(
-                                  horizontal: 16.0, vertical: 8.0),
-                              child: ListTile(
-                                leading: Icon(
-                                  Icons.shopping_basket,
-                                  color: Theme.of(context).primaryColor,
-                                ),
-                                title: Text(basket.name),
-                                subtitle: Text('Host: $hostName'),
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          BasketScreen(
-                                              basketId: basket.id),
-                                    ),
-                                  );
-                                },
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    );
-                  },
+                  ),
                 ),
-              ),
+              for (final basket in baskets) _basketCard(basket),
             ],
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: _showJoinBasketOptions,
-        child: Icon(Icons.add),
+        icon: const Icon(Icons.add),
+        label: const Text('New basket'),
+      ),
+    );
+  }
+
+  Widget _invitationBanner() {
+    return StreamBuilder<List<Basket>>(
+      stream: _invitations,
+      builder: (context, snapshot) {
+        final invites = snapshot.data ?? const [];
+        if (invites.isEmpty) return const SizedBox.shrink();
+        final scheme = Theme.of(context).colorScheme;
+        return Card(
+          color: scheme.secondaryContainer,
+          margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: ListTile(
+            leading: Icon(Icons.mark_email_unread_outlined,
+                color: scheme.onSecondaryContainer),
+            title: Text(
+              invites.length == 1
+                  ? "You're invited to ${invites.first.name}"
+                  : 'You have ${invites.length} basket invitations',
+              style: TextStyle(
+                  color: scheme.onSecondaryContainer, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text('Tap to join or decline',
+                style: TextStyle(color: scheme.onSecondaryContainer)),
+            trailing: Icon(Icons.chevron_right, color: scheme.onSecondaryContainer),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => PendingInvitationsScreen()),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _basketCard(Basket basket) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final total = basket.items.fold(0.0, (s, i) => s + i.total);
+    final needs = basket.items.where((i) => i.needsSomeone).length;
+    final host = basket.hostId == _uid
+        ? 'You host'
+        : 'Hosted by ${_hostNames[basket.hostId] ?? '…'}';
+    final people = basket.memberIds.length;
+    final items = basket.items.length;
+
+    return Card(
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => BasketScreen(basketId: basket.id)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 16, 14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.shopping_basket, color: scheme.onPrimaryContainer),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      basket.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$host · $people ${people == 1 ? 'person' : 'people'} · '
+                      '$items ${items == 1 ? 'item' : 'items'}',
+                      style: subtleText(context),
+                    ),
+                    if (needs > 0) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '$needs ${needs == 1 ? 'item needs' : 'items need'} someone',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.of(context).warning,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (items > 0) ...[
+                const SizedBox(width: 12),
+                Text(
+                  money(total),
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -172,54 +223,41 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showJoinBasketOptions() {
     showModalBottomSheet(
       context: context,
-      builder: (context) {
-        return Container(
-          // Rounded corners for the modal
-          decoration: BoxDecoration(
-            color: Theme.of(context).canvasColor,
-            borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(16.0),
-                topRight: Radius.circular(16.0)),
-          ),
-          child: Wrap(
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: Icon(Icons.create),
-                title: Text('Create New Basket'),
+                leading: const Icon(Icons.add_shopping_cart),
+                title: const Text('Create a new basket'),
+                subtitle: const Text("You'll be the host"),
                 onTap: () {
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                        builder: (context) => CreateBasketScreen()),
+                    MaterialPageRoute(builder: (_) => CreateBasketScreen()),
                   );
                 },
               ),
               ListTile(
-                leading: Icon(Icons.input),
-                title: Text('Join with Invitation Code'),
+                leading: const Icon(Icons.vpn_key_outlined),
+                title: const Text('Join with an invite code'),
+                subtitle: const Text("From a friend's basket"),
                 onTap: () {
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => JoinBasketScreen()),
+                    MaterialPageRoute(builder: (_) => JoinBasketScreen()),
                   );
                 },
               ),
+              const SizedBox(height: 8),
             ],
           ),
         );
       },
     );
-  }
-
-  Future<String> _getBasketHostFromId (String id) async{
-    if (id == _authService.currentUser!.uid) return "You";
-    return await _dbService.getUserNameById(id);
-  }
-
-  void _logout() async {
-    await _authService.signOut();
-    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
   }
 }

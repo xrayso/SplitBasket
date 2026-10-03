@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../widgets/grocery_item_tile.dart' show categoryIcon;
+import '../widgets/colour-utility.dart';
+import '../widgets/grocery_item_tile.dart' show categoryColor, categoryIcon;
 
 /// One line from a scanned or imported receipt, editable before it's added.
 class ReceiptLine {
@@ -14,6 +15,8 @@ class ReceiptLine {
   // The name exactly as printed, shown when the readable name differs so a
   // wrong guess is easy to spot.
   final String receiptText;
+  // Instant savings / coupons already taken off [total], as a positive amount.
+  final double discount;
   bool include = true;
   Set<String> people = {};
 
@@ -25,6 +28,7 @@ class ReceiptLine {
     this.category,
     this.code = '',
     this.receiptText = '',
+    this.discount = 0,
   });
 }
 
@@ -218,6 +222,49 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
     );
   }
 
+  /// A borderless text field that looks like plain text until it's tapped.
+  InputDecoration _inlineField({String? prefixText}) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return InputDecoration(
+      isDense: true,
+      filled: false,
+      prefixText: prefixText,
+      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+      border: InputBorder.none,
+      enabledBorder: InputBorder.none,
+      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primary, width: 2)),
+    );
+  }
+
+  Widget _categoryTile(String? category) {
+    final theme = Theme.of(context);
+    final colour = categoryColor(category);
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(
+          colour.withValues(alpha: theme.brightness == Brightness.dark ? 0.24 : 0.13),
+          theme.colorScheme.surface,
+        ),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Icon(categoryIcon(category),
+          size: 18, color: onColor(colour, theme.brightness)),
+    );
+  }
+
+  /// "On receipt: KS ORG EGGS · \$4.00 off", when there's anything to say.
+  String? _note(ReceiptLine line) {
+    final parts = [
+      if (line.receiptText.isNotEmpty &&
+          line.receiptText.toLowerCase() != line.description.toLowerCase())
+        'On receipt: ${line.receiptText}',
+      if (line.discount >= 0.005) '\$${line.discount.toStringAsFixed(2)} off',
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
   Widget _lineCard(int i) {
     final theme = Theme.of(context);
     final line = widget.lines[i];
@@ -237,9 +284,8 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                     value: line.include,
                     onChanged: (v) => setState(() => line.include = v!),
                   ),
-                  Icon(categoryIcon(line.category),
-                      size: 18, color: theme.hintColor),
-                  const SizedBox(width: 6),
+                  _categoryTile(line.category),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: TextFormField(
                       initialValue: line.description,
@@ -247,8 +293,7 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                       maxLines: 2,
                       keyboardType: TextInputType.text,
                       textInputAction: TextInputAction.done,
-                      decoration: const InputDecoration(
-                          isDense: true, border: InputBorder.none),
+                      decoration: _inlineField(),
                       onChanged: (t) => line.description = t,
                     ),
                   ),
@@ -258,13 +303,13 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                       child: Text('×${line.qty}', style: theme.textTheme.bodySmall),
                     ),
                   SizedBox(
-                    width: 80,
+                    width: 88,
                     child: TextFormField(
                       initialValue: line.total.toStringAsFixed(2),
                       keyboardType: const TextInputType.numberWithOptions(
                           decimal: true, signed: true),
-                      decoration: const InputDecoration(
-                          isDense: true, prefixText: '\$', border: InputBorder.none),
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                      decoration: _inlineField(prefixText: '\$'),
                       onChanged: (t) {
                         final p = double.tryParse(t);
                         if (p != null) setState(() => line.total = p);
@@ -273,12 +318,12 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                   ),
                 ],
               ),
-              if (line.receiptText.isNotEmpty &&
-                  line.receiptText.toLowerCase() != line.description.toLowerCase())
+              if (_note(line) case final note?)
                 Padding(
-                  padding: const EdgeInsets.only(left: 72, bottom: 4),
-                  child: Text('On receipt: ${line.receiptText}',
-                      style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
+                  padding: const EdgeInsets.only(left: 90, bottom: 4),
+                  child: Text(note,
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                 ),
               if (line.include)
                 Padding(
@@ -300,6 +345,7 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                       FilterChip(
                         label: const Text('Taxed'),
                         avatar: const Icon(Icons.percent, size: 16),
+                        showCheckmark: false,
                         selected: line.taxable,
                         visualDensity: VisualDensity.compact,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,

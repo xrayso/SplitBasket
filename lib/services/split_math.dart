@@ -150,3 +150,15 @@ List<ChargeLine> computeCharges(List<GroceryItem> items, double taxTotal) {
 /// What [uid] is paying for in total, before tax.
 double shareTotalFor(String uid, List<GroceryItem> items) =>
     items.fold(0.0, (sum, i) => sum + i.total * i.shareOf(uid));
+
+/// [uid]'s part of [taxTotal], split the same way [computeCharges] splits it:
+/// across the taxed items by cost, then by each item's shares.
+double taxShareFor(String uid, List<GroceryItem> items, double taxTotal) {
+  if (taxTotal <= 0) return 0;
+  final taxableOnly = items.any((i) => i.taxable);
+  final taxed = items.where((i) => !taxableOnly || i.taxable);
+  final base = taxed.fold(0.0, (sum, i) => sum + i.total);
+  if (base <= 0) return 0;
+  return taxed.fold(
+      0.0, (sum, i) => sum + taxTotal * i.total / base * i.shareOf(uid));
+}

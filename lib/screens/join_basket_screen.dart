@@ -1,8 +1,5 @@
-import 'dart:io';
-
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:split_basket/services/database_service.dart';
 import 'basket_screen.dart';
@@ -63,37 +60,60 @@ class _JoinBasketScreenState extends State<JoinBasketScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Join a Basket')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                decoration: InputDecoration(labelText: 'Invitation Code'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter a valid invitation code.';
-                  }
-                  return null;
-                },
-                onChanged: (value) => _invitationCode = value,
-              ),
-              SizedBox(height: 20),
-              if (_errorMessage != null)
-                Text(
-                  _errorMessage!,
-                  style: TextStyle(color: Colors.red),
+      appBar: AppBar(title: const Text('Join a Basket')),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextFormField(
+                  autofocus: true,
+                  autocorrect: false,
+                  textCapitalization: TextCapitalization.characters,
+                  textInputAction: TextInputAction.go,
+                  style: const TextStyle(fontSize: 22, letterSpacing: 4),
+                  decoration: const InputDecoration(
+                    labelText: 'Invite code',
+                    hintText: 'ABC123',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Enter the code your friend shared.';
+                    }
+                    return null;
+                  },
+                  onChanged: (value) => _invitationCode = value.trim().toUpperCase(),
+                  onFieldSubmitted: (_) => _joinBasket(),
                 ),
-              SizedBox(height: 20),
-              _isLoading
-                  ? CircularProgressIndicator()
-                  : ElevatedButton(
-                onPressed: _joinBasket,
-                child: Text('Join Basket'),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Text(
+                  "Ask the basket's host for it. It's on their Members tab.",
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+                if (_errorMessage != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _errorMessage!,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: _isLoading ? null : _joinBasket,
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        )
+                      : const Text('Join basket'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

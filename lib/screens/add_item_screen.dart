@@ -28,7 +28,6 @@ class _AddItemScreenState extends State<AddItemScreen> {
   late String _paidBy;
   bool _taxable = false;
   final Map<String, User> _basketUsers = {};
-  bool _loading = true;
 
   @override
   void initState() {
@@ -42,9 +41,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
       _basketUsers[userId] = await _dbService.getUserById(userId);
     }
 
-    setState(() {
-      _loading = false;
-    });
+    if (mounted) setState(() {});
 
 
   }
@@ -55,92 +52,105 @@ class _AddItemScreenState extends State<AddItemScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Add New Item'),
+        title: const Text('Add Item'),
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            children: [
-              // Item Name
-              TextFormField(
-                decoration: InputDecoration(labelText: 'Item Name'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter the item name';
-                  }
-                  return null;
-                },
-                onSaved: (value) {
-                  _itemName = value!;
-                },
-              ),
-              // Item Price
-              TextFormField(
-                decoration: InputDecoration(labelText: 'Price'),
-                keyboardType:
-                TextInputType.numberWithOptions(decimal: true),
-                validator: (value) {
-                  if (value == null ||
-                      value.isEmpty ||
-                      double.tryParse(value) == null) {
-                    return 'Please enter a valid price';
-                  }
-                  return null;
-                },
-                onSaved: (value) {
-                  _itemPrice = double.parse(value!);
-                },
-              ),
-              // Item Quantity
-              TextFormField(
-                decoration: InputDecoration(labelText: 'Quantity'),
-                keyboardType:
-                TextInputType.numberWithOptions(decimal: false),
-                validator: (value) {
-                  if (value == null ||
-                      value.isEmpty ||
-                      int.tryParse(value) == null) {
-                    return 'Please enter a valid quantity';
-                  }
-                  return null;
-                },
-                onSaved: (value) {
-                  _itemQuantity = int.parse(value!);
-                },
-              ),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Paid By'),
-                value: _paidBy, // Current selection
-                items: widget.basket.memberIds.map((userIds) {
-                  return DropdownMenuItem<String>(
-                    value: userIds,
-                    child: Text(_basketUsers[userIds]?.userName ?? ""),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  setState(() {
-                    _paidBy = val!;
-                  });
-                },
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Taxed'),
-                subtitle: const Text('Sales tax was charged on this item'),
-                value: _taxable,
-                onChanged: (v) => setState(() => _taxable = v),
-              ),
-              // Added By
-              SizedBox(height: 20),
-              // Submit Button
-              ElevatedButton(
-                onPressed: _submitForm,
-                child: Text('Add Item'),
-              ),
-            ],
-          ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextFormField(
+              autofocus: true,
+              textCapitalization: TextCapitalization.sentences,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(labelText: 'Item name'),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Please enter the item name';
+                }
+                return null;
+              },
+              onSaved: (value) {
+                _itemName = value!.trim();
+              },
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextFormField(
+                    decoration: const InputDecoration(
+                        labelText: 'Price (each)', prefixText: '\$'),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    textInputAction: TextInputAction.next,
+                    validator: (value) {
+                      if (value == null ||
+                          value.isEmpty ||
+                          double.tryParse(value) == null) {
+                        return 'Enter a price';
+                      }
+                      return null;
+                    },
+                    onSaved: (value) {
+                      _itemPrice = double.parse(value!);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    initialValue: '1',
+                    decoration: const InputDecoration(labelText: 'Quantity'),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: false),
+                    validator: (value) {
+                      final qty = int.tryParse(value ?? '');
+                      if (qty == null || qty < 1) {
+                        return 'At least 1';
+                      }
+                      return null;
+                    },
+                    onSaved: (value) {
+                      _itemQuantity = int.parse(value!);
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: 'Paid by'),
+              initialValue: _paidBy,
+              items: widget.basket.memberIds.map((userIds) {
+                return DropdownMenuItem<String>(
+                  value: userIds,
+                  child: Text(_basketUsers[userIds]?.userName ?? '…'),
+                );
+              }).toList(),
+              onChanged: (val) {
+                setState(() {
+                  _paidBy = val!;
+                });
+              },
+            ),
+            const SizedBox(height: 4),
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+              title: const Text('Taxed'),
+              subtitle: const Text('Sales tax was charged on this item'),
+              value: _taxable,
+              onChanged: (v) => setState(() => _taxable = v),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _submitForm,
+              child: const Text('Add item'),
+            ),
+          ],
         ),
       ),
     );

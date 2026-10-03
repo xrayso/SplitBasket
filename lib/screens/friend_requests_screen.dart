@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/user.dart';
+import '../widgets/ui.dart';
 
 class FriendRequestsScreen extends StatelessWidget {
   final AuthService _authService = AuthService();
@@ -15,63 +16,66 @@ class FriendRequestsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Friend Requests'),
+        title: const Text('Friend Requests'),
       ),
       body: StreamBuilder<User>(
         stream: _dbService.getUserStream(currentUserId),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
-            return Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator());
           }
 
-          User currentUser = snapshot.data!;
-          List<String> requestIds = currentUser.incomingFriendRequests;
-
+          final requestIds = snapshot.data!.incomingFriendRequests;
           if (requestIds.isEmpty) {
-            return Center(child: Text('No friend requests.'));
+            return const EmptyState(
+              icon: Icons.mark_email_read_outlined,
+              title: 'No friend requests',
+              message: "When someone adds you, you'll see it here.",
+            );
           }
 
           return ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: requestIds.length,
             itemBuilder: (context, index) {
-              String senderId = requestIds[index];
               return FutureBuilder<User>(
-                future: _dbService.getUserById(senderId),
+                future: _dbService.getUserById(requestIds[index]),
                 builder: (context, userSnapshot) {
-                  if (!userSnapshot.hasData) {
-                    return ListTile(title: Text('Loading...'));
-                  }
-
-                  User sender = userSnapshot.data!;
-                  return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Theme.of(context).colorScheme.secondary,
-                      child: Text(
-                        sender.userName.substring(0, 1).toUpperCase(),
-                        style: TextStyle(color: Colors.white),
+                  final sender = userSnapshot.data;
+                  if (sender == null) return const ListTile(title: Text('…'));
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                      child: Row(
+                        children: [
+                          PersonAvatar(name: sender.userName),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(sender.userName,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w600)),
+                                Text('Wants to be friends', style: subtleText(context)),
+                              ],
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => _dbService.declineFriendRequest(
+                                currentUserId, sender.id),
+                            child: const Text('Decline'),
+                          ),
+                          const SizedBox(width: 4),
+                          FilledButton(
+                            onPressed: () => _dbService.acceptFriendRequest(
+                                currentUserId, sender.id),
+                            child: const Text('Accept'),
+                          ),
+                        ],
                       ),
-                    ),
-                    title: Text(sender.userName),
-                    subtitle: Text('Sent you a friend request'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextButton(
-                          onPressed: () async {
-                            await _dbService.acceptFriendRequest(
-                                currentUserId, sender.id);
-                          },
-                          child: Text('Accept'),
-                        ),
-                        SizedBox(width: 8),
-                        TextButton(
-                          onPressed: () async {
-                            await _dbService.declineFriendRequest(
-                                currentUserId, sender.id);
-                          },
-                          child: Text('Decline'),
-                        ),
-                      ],
                     ),
                   );
                 },

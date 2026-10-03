@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../models/user.dart';
+import '../widgets/ui.dart';
 
 class InviteFriendsScreen extends StatefulWidget {
   final String basketId;
@@ -48,47 +49,48 @@ class _InviteFriendsScreenState extends State<InviteFriendsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(title: Text('Invite Friends')),
-        body: _loading ?
-            Center(
-              child: CircularProgressIndicator(),
-            )
-            : Column(
-          children: [
-            Expanded(
-              child: ListView(
-                children: _friends.map((friend) {
-                  return CheckboxListTile(
-                    title: Text(friend.userName),
-                    subtitle: Text(friend.email),
-                    value: _selectedFriendIds.contains(friend.id),
-                    onChanged: (bool? value) {
-                      setState(() {
-                        if (value == true) {
-                          _selectedFriendIds.add(friend.id);
-                        } else {
-                          _selectedFriendIds.remove(friend.id);
-                        }
-                      });
-                    },
-                  );
-                }).toList(),
-              ),
-            ),
-            SizedBox(height: 20), // Adds space above the button
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20.0),
-              child: ElevatedButton(
-                onPressed: _inviteFriends,
-                style: ElevatedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: 15.0),
-                  minimumSize: Size(double.infinity, 50), // Makes the button full-width
+      appBar: AppBar(title: const Text('Invite Friends')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _friends.isEmpty
+              ? const EmptyState(
+                  icon: Icons.people_outline,
+                  title: 'No friends to invite yet',
+                  message: 'Add friends from the Friends tab, or share the '
+                      "basket's invite code from the Members tab.",
+                )
+              : ListView(
+                  children: _friends.map((friend) {
+                    return CheckboxListTile(
+                      secondary: PersonAvatar(name: friend.userName),
+                      title: Text(friend.userName),
+                      subtitle: Text('${friend.userName}#${friend.friendCode}'),
+                      value: _selectedFriendIds.contains(friend.id),
+                      onChanged: (bool? value) {
+                        setState(() {
+                          if (value == true) {
+                            _selectedFriendIds.add(friend.id);
+                          } else {
+                            _selectedFriendIds.remove(friend.id);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
                 ),
-                child: Text('Send Invitations'),
+      bottomNavigationBar: _friends.isEmpty
+          ? null
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: FilledButton(
+                  onPressed: _selectedFriendIds.isEmpty ? null : _inviteFriends,
+                  child: Text(_selectedFriendIds.length > 1
+                      ? 'Invite ${_selectedFriendIds.length} friends'
+                      : 'Send invitation'),
+                ),
               ),
             ),
-            SizedBox(height: 20), // Adds space below the button
-          ],
-        ));
+    );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/basket.dart';
+import '../widgets/ui.dart';
 
 class PendingInvitationsScreen extends StatelessWidget {
   final AuthService _authService = AuthService();
@@ -15,60 +16,89 @@ class PendingInvitationsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Basket Invitations'),
+        title: const Text('Basket Invitations'),
       ),
       body: StreamBuilder<List<Basket>>(
         stream: _dbService.getInvitedBaskets(currentUserId),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Center(child: Text('Error loading invitations'));
+            return const Center(child: Text('Error loading invitations'));
           }
-
           if (!snapshot.hasData) {
-            return Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator());
           }
 
-          List<Basket> baskets = snapshot.data!;
-
+          final baskets = snapshot.data!;
           if (baskets.isEmpty) {
-            return Center(child: Text('No pending invitations.'));
+            return const EmptyState(
+              icon: Icons.mark_email_read_outlined,
+              title: 'No invitations',
+              message: "When a friend invites you to a basket, it'll show up here.",
+            );
           }
 
           return ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: baskets.length,
             itemBuilder: (context, index) {
-              Basket basket = baskets[index];
+              final basket = baskets[index];
               return FutureBuilder<String>(
                 future: _dbService.getUserNameById(basket.hostId),
                 builder: (context, snapshot) {
-                  String hostName;
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    hostName = "Loading...";
-                  } else if (snapshot.hasError) {
-                    hostName = "Error loading name";
-                  } else {
-                    hostName = snapshot.data ?? 'Anonymous';
-                  }
-                  return ListTile(
-                    title: Text("Basket: ${basket.name}"),
-                    subtitle: Text('Invited by: $hostName'),
-                    // Optionally, fetch host's name
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: Icon(Icons.check, color: Colors.green),
-                          tooltip: 'Accept',
-                          onPressed: () =>
-                              _acceptInvitation(basket.id, currentUserId),
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.close, color: Colors.red),
-                          tooltip: 'Decline',
-                          onPressed: () =>
-                              _declineInvitation(basket.id, currentUserId),
-                        ),
-                      ],
+                  final hostName = snapshot.data ?? '…';
+                  final scheme = Theme.of(context).colorScheme;
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: scheme.primaryContainer,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(Icons.shopping_basket,
+                                    color: scheme.onPrimaryContainer),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(basket.name,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(fontWeight: FontWeight.w600)),
+                                    Text('From $hostName', style: subtleText(context)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                onPressed: () =>
+                                    _declineInvitation(basket.id, currentUserId),
+                                child: const Text('Decline'),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton(
+                                onPressed: () =>
+                                    _acceptInvitation(basket.id, currentUserId),
+                                child: const Text('Join'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 },

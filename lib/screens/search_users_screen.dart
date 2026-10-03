@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 import '../models/user.dart';
+import '../widgets/ui.dart';
 
 class SearchUsersScreen extends StatefulWidget {
   const SearchUsersScreen({super.key});
@@ -140,75 +141,72 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    decoration: const InputDecoration(labelText: 'Friend Tag (e.g., username#1234)'),
-                    onChanged: (value) {
-                      setState(() {
-                        _searchQuery = value;
-                      });
-                      _searchUsersRelaxed(_searchQuery);
-                    },
-                    onSubmitted: (value){
-                      _searchUsers();
-                    },
-                    onEditingComplete: _searchUsers,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: _searchUsers,
-                ),
-              ],
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: TextField(
+              autofocus: true,
+              autocorrect: false,
+              textInputAction: TextInputAction.search,
+              decoration: const InputDecoration(
+                hintText: 'Name or friend tag, e.g. sam#1234',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (value) {
+                setState(() => _searchQuery = value);
+                _searchUsersRelaxed(_searchQuery);
+              },
+              onSubmitted: (_) {
+                if (_searchQuery.contains('#')) _searchUsers();
+              },
             ),
           ),
           Expanded(
-            child: _searchQuery.isEmpty
-                ? Center(
-              child: Text(
-                'Enter a friend tag to search.\nYou can find your own friend tag in your profile.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16),
-              ),
-            )
+            child: _searchQuery.trim().isEmpty
+                ? const EmptyState(
+                    icon: Icons.person_search_outlined,
+                    title: 'Find your friends',
+                    message: "Search by name, or type their friend tag. "
+                        "Your own tag is in your profile.",
+                  )
                 : _searchResults.isEmpty
-                ? Center(
-              child: Text(
-                'No users found. Try another search.',
-                style: const TextStyle(fontSize: 16),
-              ),
-            )
-                : ListView(
-              children: _searchResults.map((user) {
-                Widget trailingWidget;
-
-                if (user.id == _currentUserId) {
-                  // Prevent adding yourself
-                  trailingWidget = const Text('This is You');
-                } else if (_friendIds.contains(user.id)) {
-                  // Already friends
-                  trailingWidget = const Text('Already Added');
-                } else if (_outgoingFriendRequests.contains(user.id)) {
-                  // Friend request already sent
-                  trailingWidget = const Text('Request Sent');
-                } else {
-                  // Show Add Friend button
-                  trailingWidget = ElevatedButton(
-                    onPressed: () => _sendFriendRequest(user.id),
-                    child: const Text('Add Friend'),
-                  );
-                }
-
-                return ListTile(
-                  title: Text(user.userName),
-                  subtitle: Text('${user.userName}#${user.friendCode}'),
-                  trailing: trailingWidget,
-                );
-              }).toList(),
-            ),
+                    ? const EmptyState(
+                        icon: Icons.search_off,
+                        title: 'No one found',
+                        message: 'Check the spelling, or ask for their friend tag.',
+                      )
+                    : ListView(
+                        children: _searchResults.map((user) {
+                          final Widget trailing;
+                          if (_friendIds.contains(user.id)) {
+                            trailing = Text('Friends', style: subtleText(context));
+                          } else if (_outgoingFriendRequests.contains(user.id)) {
+                            trailing = Text('Requested', style: subtleText(context));
+                          } else if (_incomingFriendRequests.contains(user.id)) {
+                            // They already asked: accept instead of asking back.
+                            trailing = FilledButton.tonal(
+                              onPressed: () async {
+                                await _dbService.acceptFriendRequest(
+                                    _currentUserId, user.id);
+                                setState(() {
+                                  _incomingFriendRequests.remove(user.id);
+                                  _friendIds.add(user.id);
+                                });
+                              },
+                              child: const Text('Accept'),
+                            );
+                          } else {
+                            trailing = FilledButton.tonal(
+                              onPressed: () => _sendFriendRequest(user.id),
+                              child: const Text('Add'),
+                            );
+                          }
+                          return ListTile(
+                            leading: PersonAvatar(name: user.userName),
+                            title: Text(user.userName),
+                            subtitle: Text('${user.userName}#${user.friendCode}'),
+                            trailing: trailing,
+                          );
+                        }).toList(),
+                      ),
           ),
         ],
       ),

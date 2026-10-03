@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/basket.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../widgets/ui.dart';
 import 'invite_friends_screen.dart';
 
 class BasketMembersScreen extends StatefulWidget {
@@ -27,6 +29,14 @@ class _BasketMembersScreenState extends State<BasketMembersScreen> {
   void initState() {
     super.initState();
     _fetchMembers();
+  }
+
+  @override
+  void didUpdateWidget(BasketMembersScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final before = oldWidget.basket.memberIds.toSet();
+    final now = widget.basket.memberIds.toSet();
+    if (before.length != now.length || !before.containsAll(now)) _fetchMembers();
   }
 
   /// Fetch the members from the database and update state.
@@ -63,117 +73,154 @@ class _BasketMembersScreenState extends State<BasketMembersScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Basket Members'),
+        title: const Text('Members'),
         actions: [
           IconButton(
-            icon: Icon(Icons.person_add),
+            icon: const Icon(Icons.person_add_alt_1_outlined),
+            tooltip: 'Invite friends',
             onPressed: () => _inviteFriends(context),
           ),
-          IconButton(
-            icon: Icon(Icons.share),
-            onPressed: () {
-              Share.share(
-                'Join my basket using this code: ${widget.basket.invitationCode}',
-              );
-            },
-          )
         ],
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : _errorMessage.isNotEmpty
-          ? Center(child: Text(_errorMessage))
-          : ListView.builder(
-        itemCount: _members.length,
-        itemBuilder: (context, index) {
-          final member = _members[index];
-          // Check if current user has already sent a friend request
-          // (i.e., user's ID is in this member's incoming requests).
-          final sentFriendRequest =
-          member.incomingFriendRequests.contains(currentUserId);
+              ? Center(child: Text(_errorMessage))
+              : ListView(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  children: [
+                    _inviteCard(context),
+                    for (final member in _members)
+                      ListTile(
+                        leading: PersonAvatar(name: member.userName),
+                        title: Text(
+                          member.id == currentUserId
+                              ? '${member.userName} (you)'
+                              : member.userName,
+                        ),
+                        subtitle: Text(
+                          member.id == widget.basket.hostId
+                              ? 'Host'
+                              : '${member.userName}#${member.friendCode}',
+                        ),
+                        trailing: _buildTrailingActions(
+                          isHost: isHost,
+                          currentUserId: currentUserId,
+                          member: member,
+                          sentFriendRequest:
+                              member.incomingFriendRequests.contains(currentUserId),
+                        ),
+                      ),
+                  ],
+                ),
+    );
+  }
 
-          return ListTile(
-            leading: CircleAvatar(
-              child: Text(
-                member.userName.substring(0, 1).toUpperCase(),
+  /// The basket's invite code, ready to copy or share.
+  Widget _inviteCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final code = widget.basket.invitationCode;
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Invite code', style: subtleText(context)),
+                  const SizedBox(height: 2),
+                  SelectableText(
+                    code,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ],
               ),
             ),
-            title: Text(member.userName),
-            subtitle: Text(member.email),
-            trailing: _buildTrailingActions(
-              isHost: isHost,
-              currentUserId: currentUserId,
-              member: member,
-              sentFriendRequest: sentFriendRequest,
+            IconButton(
+              icon: const Icon(Icons.copy_rounded),
+              tooltip: 'Copy code',
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: code));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Invite code copied')),
+                );
+              },
             ),
-          );
-        },
+            IconButton(
+              icon: const Icon(Icons.ios_share),
+              tooltip: 'Share code',
+              onPressed: () => Share.share(
+                'Join my basket "${widget.basket.name}" on SplitBasket with '
+                'the code $code',
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  /// Builds the trailing widget for each ListTile (friend request & remove button).
+  /// Friend request and remove buttons for a member's row.
   Widget? _buildTrailingActions({
     required bool isHost,
     required String currentUserId,
     required User member,
     required bool sentFriendRequest,
   }) {
-    final bool isCurrentUserHost = isHost;
-    final bool isMemberHost = member.id == widget.basket.hostId;
-    final bool isAlreadyFriend = member.friendIds.contains(currentUserId);
-    final bool isSelf = member.id == currentUserId;
+    final isMemberHost = member.id == widget.basket.hostId;
+    final isAlreadyFriend = member.friendIds.contains(currentUserId);
+    final isSelf = member.id == currentUserId;
 
-    // 1. If user is host, member is not host, and not already friend
-    if (isCurrentUserHost && !isMemberHost && !isAlreadyFriend) {
-      return Row(
-        mainAxisSize: MainAxisSize.min, // Ensures buttons are side by side
-        children: [
-          IconButton(
-            icon: Icon(
-              Icons.person_add,
-              color: sentFriendRequest ? Colors.green[100] : Colors.green,
-            ),
-            disabledColor: Colors.green[100], // color if onPressed is null
-            onPressed: !sentFriendRequest
-                ? () async {
-              await _dbService.sendFriendRequest(currentUserId, member.id);
-              setState(() {
-                // Reflect change immediately in local data
-                member.incomingFriendRequests.add(currentUserId);
-              });
-            }
-                : null,
-          ),
-          IconButton(
-            icon: Icon(Icons.remove_circle, color: Colors.red),
-            onPressed: () => _removeMember(member.id),
-          ),
-        ],
-      );
-    }
-
-    // 2. If not already friends, not the current user, show single friend request button
-    if (!isAlreadyFriend && !isSelf) {
-      return IconButton(
-        icon: Icon(
-          Icons.person_add,
-          color: sentFriendRequest ? Colors.green[100] : Colors.green,
+    final actions = <Widget>[
+      if (!isAlreadyFriend && !isSelf)
+        sentFriendRequest
+            ? const Tooltip(
+                message: 'Friend request sent',
+                child: Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Icon(Icons.how_to_reg_outlined),
+                ),
+              )
+            : IconButton(
+                icon: const Icon(Icons.person_add_alt_1_outlined),
+                tooltip: 'Add friend',
+                onPressed: () async {
+                  await _dbService.sendFriendRequest(currentUserId, member.id);
+                  setState(() => member.incomingFriendRequests.add(currentUserId));
+                },
+              ),
+      if (isHost && !isMemberHost)
+        IconButton(
+          icon: Icon(Icons.person_remove_outlined,
+              color: Theme.of(context).colorScheme.error),
+          tooltip: 'Remove from basket',
+          onPressed: () => _confirmRemove(member),
         ),
-        disabledColor: Colors.green[100],
-        onPressed: !sentFriendRequest
-            ? () async {
-          await _dbService.sendFriendRequest(currentUserId, member.id);
-          setState(() {
-            member.incomingFriendRequests.add(currentUserId);
-          });
-        }
-            : null,
-      );
-    }
+    ];
+    if (actions.isEmpty) return null;
+    return Row(mainAxisSize: MainAxisSize.min, children: actions);
+  }
 
-    // 3. Otherwise, show nothing
-    return null;
+  Future<void> _confirmRemove(User member) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Remove ${member.userName}?'),
+        content: const Text(
+            "They'll no longer see this basket. Items they're in on keep their shares."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove')),
+        ],
+      ),
+    );
+    if (ok == true) await _removeMember(member.id);
   }
 
   Future<void> _inviteFriends(BuildContext context) async {

@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:split_basket/models/aggregated_resolution_request.dart';
 import 'package:split_basket/services/notification_service.dart';
 import '../models/user.dart';
+import '../theme.dart';
+import '../widgets/ui.dart';
 import 'charges_detail_screen.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
-import '../models/charges.dart';
 import '../models/aggregated_charge.dart';
-import 'package:badges/badges.dart' as badges;
 
 class ChargesScreen extends StatefulWidget {
   const ChargesScreen({super.key});
@@ -22,268 +22,117 @@ class _ChargesScreenState extends State<ChargesScreen>
     with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
+  late final String _uid = _authService.currentUser!.uid;
+  // Created once, so switching tabs doesn't re-download everything.
+  late final Stream<List<AggregatedCharge>> _balances =
+      _dbService.getUniqueCharges(_uid);
+  late final Stream<List<AggregatedResolutionRequest>> _requests =
+      _dbService.getUniquePendingResolutionRequests(_uid);
+  late final Stream<int> _requestCount = _dbService.getPendingRequestCount(_uid);
 
-  TabController? _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
+  late final TabController _tabController = TabController(length: 2, vsync: this);
 
   @override
   void dispose() {
-    _tabController?.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
-  void _resolveAllCharges(String otherUserId) async {
-    final currentUserId = _authService.currentUser!.uid;
-    await _dbService.resolveAllCharges(currentUserId, otherUserId);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('All charges resolved.')),
-    );
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _requestResolutionForAllCharges(String otherUserId) async {
-    final currentUserId = _authService.currentUser!.uid;
+  Future<void> _resolveAllCharges(String otherUserId, String name, double amount) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Mark ${money(amount)} as paid?'),
+        content: Text("This clears everything $name owes you. You can't undo it."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Mark as paid')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _dbService.resolveAllCharges(_uid, otherUserId);
+    _showSnack('Marked as paid');
+  }
+
+  Future<void> _requestResolutionForAllCharges(String otherUserId, String name) async {
     try {
-      await _dbService.requestResolutionForAllCharges(
-          currentUserId, otherUserId);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Resolution request sent.')),
-      );
+      await _dbService.requestResolutionForAllCharges(_uid, otherUserId);
+      _showSnack("Sent. $name just has to confirm they got it.");
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Resolution request sent.')),
-      );
+      _showSnack("Couldn't send that: $e");
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentUserId = _authService.currentUser!.uid;
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Your Charges'),
-        bottom: PreferredSize(
-          preferredSize: Size.fromHeight(48.0),
-          child: StreamBuilder<int>(
-            stream: _dbService.getPendingRequestCount(currentUserId),
-            builder: (context, snapshot) {
-              int pendingCount = snapshot.data ?? 0;
-              return TabBar(
-                controller: _tabController,
-                tabs: [
-                  Tab(text: 'All Charges'),
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('Pending Requests'),
-                        if (pendingCount > 0) SizedBox(width: 4),
-                        if (pendingCount > 0)
-                          badges.Badge(
-                            badgeContent: Text(
-                              pendingCount > 9 ? '9+' : pendingCount.toString(),
-                              style: TextStyle(color: Colors.white, fontSize: 10),
-                            ),
-                            position:
-                            badges.BadgePosition.topEnd(top: -12, end: -20),
-                            badgeStyle: badges.BadgeStyle(
-                                badgeColor: Colors.red
-                            ),
-                            child: SizedBox(width: 0, height: 0),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
+        title: const Text('Charges'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: [
+            const Tab(text: 'Balances'),
+            Tab(
+              child: StreamBuilder<int>(
+                stream: _requestCount,
+                builder: (context, snapshot) {
+                  final count = snapshot.data ?? 0;
+                  return Badge(
+                    isLabelVisible: count > 0,
+                    label: Text(count > 9 ? '9+' : '$count'),
+                    offset: const Offset(14, -4),
+                    child: const Text('Requests'),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildAllCharges(currentUserId),
-          _buildPendingRequests(currentUserId),
+          _buildAllCharges(),
+          _buildPendingRequests(),
         ],
       ),
     );
   }
 
-  Widget _buildAllCharges(String currentUserId) {
-    return Scaffold(
-      appBar: AppBar(title: Text('Your Charges')),
-      body: StreamBuilder<List<AggregatedCharge>>(
-        stream: _dbService.getUniqueCharges(currentUserId),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData) {
-            return Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.data!.isEmpty) {
-            return Center(child: Text("You have no charges!"));
-          }
-          final charges = snapshot.data!;
-
-          return ListView.builder(
-            itemCount: charges.length,
-            itemBuilder: (context, index) {
-              AggregatedCharge aggregatedCharge = charges[index];
-              String otherUserId = aggregatedCharge.otherUserId;
-              double netAmount = aggregatedCharge.netAmount;
-              bool isRequested = aggregatedCharge.requested;
-              bool isPayee = netAmount < 0;
-
-              Color? tileColor;
-              if (isPayee) {
-                tileColor = Colors.green[100]; // User is payee (owed money)
-              } else {
-                tileColor = Colors.red[100];   // User is payer (owes money)
-              }
-              if (netAmount == 0) {
-                tileColor = Colors.orange[200];
-              }
-
-              return FutureBuilder<String>(
-                future: _dbService.getUserNameById(otherUserId),
-                builder: (context, userSnapshot) {
-                  if (!userSnapshot.hasData) {
-                    return ListTile(title: Text('Loading...'));
-                  }
-
-                  String userName = userSnapshot.data!;
-                  double amount = netAmount.abs();
-
-                  return ListTile(
-                    tileColor: tileColor,
-                    title: Text(userName),
-                    subtitle: Text(
-                      isPayee
-                          ? '$userName owes you \$${amount.toStringAsFixed(2)}'
-                          : 'You owe \$${amount.toStringAsFixed(2)}',
-                    ),
-                    trailing: isPayee
-                        ? Row(
-                      mainAxisSize: MainAxisSize.min, // <-- key
-                      children: [
-                        ElevatedButton(
-                          onPressed: () => sendReminder(otherUserId, "\$${amount.toStringAsFixed(2)}"),
-                          child: Text("Remind"),
-                        ),
-                        SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: () => _resolveAllCharges(otherUserId),
-                          child: Text('Resolve All'),
-                        ),
-                      ],
-                    )
-                        : ElevatedButton(
-                      onPressed: isRequested
-                          ? null
-                          : () => _requestResolutionForAllCharges(otherUserId),
-                      child: Text(isRequested ? 'Requested' : 'Resolve Request'),
-                    ),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => ChargesDetailScreen(
-                            otherUserId: otherUserId,
-                            userName: userName,
-                            currentUserId: currentUserId,
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildPendingRequests(String currentUserId) {
-    return StreamBuilder<List<AggregatedResolutionRequest>>(
-      stream: _dbService.getUniquePendingResolutionRequests(currentUserId),
+  Widget _buildAllCharges() {
+    return StreamBuilder<List<AggregatedCharge>>(
+      stream: _balances,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
         }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(child: Text('No pending requests.'));
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final charges = snapshot.data!;
+        if (charges.isEmpty) {
+          return const EmptyState(
+            icon: Icons.celebration_outlined,
+            title: "You're all settled up",
+            message: 'When a basket is finalized, what you owe and are owed shows up here.',
+          );
         }
 
-        final requests = snapshot.data!;
-
         return ListView.builder(
-          itemCount: requests.length,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: charges.length,
           itemBuilder: (context, index) {
-            final aggregatedRequest = requests[index];
-            String requesterName = "";
-            return ListTile(
-              tileColor: Colors.green[100],
-              title: FutureBuilder<String>(
-                future: _dbService.getUserNameById(aggregatedRequest.requestedBy),
-                builder: (context, userSnapshot) {
-                  if (userSnapshot.connectionState == ConnectionState.waiting) {
-                    return Text("Requested by: Loading...");
-                  } else if (userSnapshot.hasError) {
-                    return Text("Requested by: <error>");
-                  } else {
-                    requesterName = userSnapshot.data ?? "Unknown";
-                    return Text("Requested by: $requesterName");
-                  }
-                },
-              ),
-              subtitle: Text(
-                "Amount Requested: \$"
-                    "${aggregatedRequest.totalAmountRequested.toStringAsFixed(2)}",
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min, // <-- key
-                children: [
-                  ElevatedButton(
-                    onPressed: () => _acceptAllRequests(
-                      currentUserId,
-                      aggregatedRequest,
-                    ),
-                    child: Text('Accept'),
-                  ),
-                  SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: () => _declineAllRequests(
-                      currentUserId,
-                      aggregatedRequest,
-                    ),
-                    child: Text(
-                      'Decline',
-                      style: TextStyle(color: Colors.red),
-                    ),
-                  ),
-                ],
-              ),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ChargesDetailScreen(
-                      otherUserId: requests[index].requestedBy,
-                      userName: requesterName,
-                      currentUserId: currentUserId,
-                    ),
-                  ),
-                );
-              },
+            final charge = charges[index];
+            return FutureBuilder<String>(
+              future: _dbService.getUserNameById(charge.otherUserId),
+              builder: (context, nameSnapshot) =>
+                  _balanceCard(charge, nameSnapshot.data ?? '…'),
             );
           },
         );
@@ -291,20 +140,214 @@ class _ChargesScreenState extends State<ChargesScreen>
     );
   }
 
-  void _acceptRequest(Charge charge) async {
-    await _dbService.acceptChargeResolution(charge.id);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Charge accepted and resolved.')),
+  Widget _balanceCard(AggregatedCharge charge, String name) {
+    final theme = Theme.of(context);
+    final colors = AppColors.of(context);
+    final net = charge.netAmount;
+    final amount = net.abs();
+    final owedToMe = net < 0;
+    final even = amount < 0.005;
+
+    final Widget actions;
+    if (even) {
+      actions = const SizedBox.shrink();
+    } else if (owedToMe) {
+      actions = Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          TextButton.icon(
+            icon: const Icon(Icons.notifications_active_outlined, size: 18),
+            label: const Text('Remind'),
+            onPressed: () => sendReminder(charge.otherUserId, money(amount)),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.tonal(
+            onPressed: () => _resolveAllCharges(charge.otherUserId, name, amount),
+            child: const Text('Mark as paid'),
+          ),
+        ],
+      );
+    } else if (charge.requested) {
+      actions = Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Icon(Icons.hourglass_top, size: 16, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Text('Waiting for $name to confirm', style: subtleText(context)),
+        ],
+      );
+    } else {
+      actions = Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FilledButton.tonal(
+            onPressed: () => _requestResolutionForAllCharges(charge.otherUserId, name),
+            child: const Text('I paid'),
+          ),
+        ],
+      );
+    }
+
+    return Card(
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChargesDetailScreen(
+              otherUserId: charge.otherUserId,
+              userName: name,
+              currentUserId: _uid,
+            ),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  PersonAvatar(name: name),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(name,
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600)),
+                        Text(
+                          even ? "You're even" : (owedToMe ? 'Owes you' : 'You owe'),
+                          style: subtleText(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!even)
+                    Text(
+                      money(amount),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: owedToMe ? colors.positive : colors.negative,
+                      ),
+                    ),
+                  Icon(Icons.chevron_right, color: theme.colorScheme.onSurfaceVariant),
+                ],
+              ),
+              const SizedBox(height: 6),
+              actions,
+            ],
+          ),
+        ),
+      ),
     );
   }
 
-  Future<void> _acceptAllRequests(String currentUserId, AggregatedResolutionRequest request) async {
-    await _dbService.resolveCharges(currentUserId, request.requestedBy);
+  Widget _buildPendingRequests() {
+    return StreamBuilder<List<AggregatedResolutionRequest>>(
+      stream: _requests,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final requests = snapshot.data!;
+        if (requests.isEmpty) {
+          return const EmptyState(
+            icon: Icons.inbox_outlined,
+            title: 'No requests',
+            message: "When someone says they've paid you back, you'll confirm it here.",
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: requests.length,
+          itemBuilder: (context, index) {
+            final request = requests[index];
+            return FutureBuilder<String>(
+              future: _dbService.getUserNameById(request.requestedBy),
+              builder: (context, nameSnapshot) =>
+                  _requestCard(request, nameSnapshot.data ?? '…'),
+            );
+          },
+        );
+      },
+    );
   }
 
-  Future<void> _declineAllRequests(
-      String currentUserId, AggregatedResolutionRequest request) async {
-    await _dbService.declineRequests(currentUserId, request);
+  Widget _requestCard(AggregatedResolutionRequest request, String name) {
+    final theme = Theme.of(context);
+    return Card(
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChargesDetailScreen(
+              otherUserId: request.requestedBy,
+              userName: name,
+              currentUserId: _uid,
+            ),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  PersonAvatar(name: name),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(children: [
+                        TextSpan(
+                            text: name,
+                            style: const TextStyle(fontWeight: FontWeight.w600)),
+                        const TextSpan(text: ' says they paid you '),
+                        TextSpan(
+                          text: money(request.totalAmountRequested),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.of(context).positive,
+                          ),
+                        ),
+                      ]),
+                      style: theme.textTheme.bodyLarge,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => _declineAllRequests(request),
+                    child: const Text('Not yet'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: () => _acceptAllRequests(request),
+                    child: const Text('Confirm'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _acceptAllRequests(AggregatedResolutionRequest request) async {
+    await _dbService.resolveCharges(_uid, request.requestedBy);
+    _showSnack('Confirmed and cleared');
+  }
+
+  Future<void> _declineAllRequests(AggregatedResolutionRequest request) async {
+    await _dbService.declineRequests(_uid, request);
   }
 
   void sendReminder(String otherUserId, String costAsFixedString) async {
@@ -355,15 +398,6 @@ class _ChargesScreenState extends State<ChargesScreen>
         reminderBodies[randomIndex],
         [otherUser.token]
     );
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Reminder sent to ${otherUser.userName}')),
-    );
-  }
-
-  void _declineRequest(Charge charge) async {
-    await _dbService.declineChargeResolution(charge.id);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Charge resolution declined.')),
-    );
+    _showSnack('Reminder sent to ${otherUser.userName}');
   }
 }

@@ -1,6 +1,7 @@
 // lib/screens/basket_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
@@ -11,7 +12,9 @@ import '../services/auth_service.dart';
 import '../services/costco_receipts.dart';
 import '../services/database_service.dart';
 import '../services/split_math.dart';
+import '../theme.dart';
 import '../widgets/grocery_item_tile.dart';
+import '../widgets/ui.dart';
 import 'add_item_screen.dart';
 import 'basket_members_screen.dart';
 import 'costco_import_screen.dart';
@@ -45,6 +48,9 @@ class _BasketScreenState extends State<BasketScreen> {
   // Multi-select (long-press an item) and the "needs someone" filter.
   final Set<String> _selected = {};
   bool _onlyNeedsSomeone = false;
+  // The add button hides while scrolling down, so it never sits on top of an
+  // item's checkbox.
+  bool _showAddButton = true;
 
   @override
   void initState() {
@@ -61,7 +67,10 @@ class _BasketScreenState extends State<BasketScreen> {
   void _loadNames(Basket basket) {
     final ids = {
       ...basket.memberIds,
-      for (final item in basket.items) ...[item.paidBy, ...item.userShares.keys],
+      for (final item in basket.items) ...[
+        item.paidBy,
+        ...item.userShares.keys
+      ],
     };
     if (ids.length == _namesFor.length && ids.containsAll(_namesFor)) return;
     _namesFor = ids;
@@ -83,7 +92,7 @@ class _BasketScreenState extends State<BasketScreen> {
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (_) => MainScreen()),
-                    (route) => false,
+                (route) => false,
               );
             });
           }
@@ -100,7 +109,7 @@ class _BasketScreenState extends State<BasketScreen> {
         final pages = [
           BasketMembersScreen(basket: basket),
           _basketPage(context, basket, currentUserId),
-          ExpenseSummaryScreen(basket: basket),
+          ExpenseSummaryScreen(basket: basket, names: _names),
         ];
 
         return Scaffold(
@@ -109,10 +118,9 @@ class _BasketScreenState extends State<BasketScreen> {
             onPageChanged: (idx) => setState(() => _currentIndex = idx),
             children: pages,
           ),
-          bottomNavigationBar: BottomNavigationBar(
-            currentIndex: _currentIndex,
-            selectedItemColor: Theme.of(context).colorScheme.secondary,
-            onTap: (idx) {
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _currentIndex,
+            onDestinationSelected: (idx) {
               setState(() => _currentIndex = idx);
               _pageController.animateToPage(
                 idx,
@@ -120,10 +128,22 @@ class _BasketScreenState extends State<BasketScreen> {
                 curve: Curves.easeInOut,
               );
             },
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Members'),
-              BottomNavigationBarItem(icon: Icon(Icons.shopping_cart), label: 'Basket'),
-              BottomNavigationBarItem(icon: Icon(Icons.receipt), label: 'Summary'),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.people_outline),
+                selectedIcon: Icon(Icons.people),
+                label: 'Members',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.shopping_cart_outlined),
+                selectedIcon: Icon(Icons.shopping_cart),
+                label: 'Items',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.receipt_long_outlined),
+                selectedIcon: Icon(Icons.receipt_long),
+                label: 'Summary',
+              ),
             ],
           ),
         );
@@ -136,8 +156,9 @@ class _BasketScreenState extends State<BasketScreen> {
     final selecting = _selected.isNotEmpty;
     final needs = basket.items.where((i) => i.needsSomeone).length;
     final filterOn = _onlyNeedsSomeone && needs > 0;
-    final visible =
-        filterOn ? basket.items.where((i) => i.needsSomeone).toList() : basket.items;
+    final visible = filterOn
+        ? basket.items.where((i) => i.needsSomeone).toList()
+        : basket.items;
 
     return PopScope(
       // Back leaves selection mode first.
@@ -155,33 +176,48 @@ class _BasketScreenState extends State<BasketScreen> {
                 children: [
                   _summaryBar(context, basket, uid, needs, filterOn),
                   Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.only(bottom: 88),
-                      itemCount: visible.length,
-                      itemBuilder: (_, idx) {
-                        final item = visible[idx];
-                        return GroceryItemTile(
-                          key: ValueKey(item.id),
-                          item: item,
-                          basket: basket,
-                          names: _names,
-                          selectionMode: selecting,
-                          selected: _selected.contains(item.id),
-                          onLongPress: () =>
-                              setState(() => _toggleSelected(item.id)),
-                          onSelectToggle: () =>
-                              setState(() => _toggleSelected(item.id)),
-                        );
+                    child: NotificationListener<UserScrollNotification>(
+                      onNotification: (n) {
+                        final show = n.direction != ScrollDirection.reverse;
+                        if (n.direction != ScrollDirection.idle &&
+                            show != _showAddButton) {
+                          setState(() => _showAddButton = show);
+                        }
+                        return false;
                       },
+                      child: ListView.builder(
+                        padding: const EdgeInsets.only(top: 4, bottom: 96),
+                        itemCount: visible.length,
+                        itemBuilder: (_, idx) {
+                          final item = visible[idx];
+                          return GroceryItemTile(
+                            key: ValueKey(item.id),
+                            item: item,
+                            basket: basket,
+                            names: _names,
+                            selectionMode: selecting,
+                            selected: _selected.contains(item.id),
+                            onLongPress: () =>
+                                setState(() => _toggleSelected(item.id)),
+                            onSelectToggle: () =>
+                                setState(() => _toggleSelected(item.id)),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ],
               ),
-        floatingActionButton: selecting
+        floatingActionButton: selecting || basket.items.isEmpty
             ? null
-            : FloatingActionButton(
-                child: const Icon(Icons.add),
-                onPressed: () => _showAddMenu(context, basket),
+            : AnimatedSlide(
+                offset: _showAddButton ? Offset.zero : const Offset(0, 2),
+                duration: const Duration(milliseconds: 200),
+                child: FloatingActionButton(
+                  tooltip: 'Add items',
+                  onPressed: () => _showAddMenu(context, basket),
+                  child: const Icon(Icons.add),
+                ),
               ),
       ),
     );
@@ -190,28 +226,30 @@ class _BasketScreenState extends State<BasketScreen> {
   void _toggleSelected(String id) =>
       _selected.contains(id) ? _selected.remove(id) : _selected.add(id);
 
-  PreferredSizeWidget _normalAppBar(BuildContext context, Basket basket, String uid) {
+  PreferredSizeWidget _normalAppBar(
+      BuildContext context, Basket basket, String uid) {
     final isHost = basket.hostId == uid;
     return AppBar(
       title: Text(basket.name),
       actions: [
-        if (isHost)
-          IconButton(
-            icon: const Icon(Icons.check),
-            tooltip: 'Finalize Basket',
+        if (isHost && basket.items.isNotEmpty)
+          TextButton(
             onPressed: () => _finalizeBasket(context, basket),
+            child: const Text('Finalize'),
           ),
         PopupMenuButton<String>(
           onSelected: (action) {
             switch (action) {
               case 'allIn':
                 _bulk(
-                  _dbService.setOptIn(basket.id, basket.items.map((i) => i.id), uid,
+                  _dbService.setOptIn(
+                      basket.id, basket.items.map((i) => i.id), uid,
                       optedIn: true),
                   "You're in on all ${basket.items.length} items",
                 );
               case 'allEven':
-                _confirmSplitEvenly(context, basket, basket.items.map((i) => i.id));
+                _confirmSplitEvenly(
+                    context, basket, basket.items.map((i) => i.id));
               case 'select':
                 if (basket.items.isNotEmpty) {
                   setState(() => _selected.add(basket.items.first.id));
@@ -221,10 +259,14 @@ class _BasketScreenState extends State<BasketScreen> {
             }
           },
           itemBuilder: (_) => [
-            const PopupMenuItem(value: 'allIn', child: Text("I'm in on everything")),
-            const PopupMenuItem(value: 'allEven', child: Text('Split everything evenly')),
+            const PopupMenuItem(
+                value: 'allIn', child: Text("I'm in on everything")),
+            const PopupMenuItem(
+                value: 'allEven', child: Text('Split everything evenly')),
             const PopupMenuItem(value: 'select', child: Text('Select items')),
-            if (isHost) const PopupMenuItem(value: 'delete', child: Text('Delete basket')),
+            if (isHost)
+              const PopupMenuItem(
+                  value: 'delete', child: Text('Delete basket')),
           ],
         ),
       ],
@@ -243,7 +285,8 @@ class _BasketScreenState extends State<BasketScreen> {
         IconButton(
           icon: const Icon(Icons.select_all),
           tooltip: 'Select all',
-          onPressed: () => setState(() => _selected.addAll(basket.items.map((i) => i.id))),
+          onPressed: () =>
+              setState(() => _selected.addAll(basket.items.map((i) => i.id))),
         ),
         IconButton(
           icon: const Icon(Icons.add_task),
@@ -277,7 +320,8 @@ class _BasketScreenState extends State<BasketScreen> {
       await action;
       messenger.showSnackBar(SnackBar(content: Text(done)));
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text("Couldn't update items: $e")));
+      messenger
+          .showSnackBar(SnackBar(content: Text("Couldn't update items: $e")));
     }
   }
 
@@ -294,8 +338,12 @@ class _BasketScreenState extends State<BasketScreen> {
           'This replaces any shares people already chose.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Split evenly')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Split evenly')),
         ],
       ),
     );
@@ -307,50 +355,64 @@ class _BasketScreenState extends State<BasketScreen> {
     }
   }
 
-  Widget _summaryBar(
-      BuildContext context, Basket basket, String uid, int needs, bool filterOn) {
+  Widget _summaryBar(BuildContext context, Basket basket, String uid, int needs,
+      bool filterOn) {
     final theme = Theme.of(context);
+    final colors = AppColors.of(context);
     final total = basket.items.fold(0.0, (s, i) => s + i.total);
     final mine = shareTotalFor(uid, basket.items);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      padding: const EdgeInsets.fromLTRB(20, 4, 16, 8),
       child: Row(
         children: [
           Expanded(
-            child: Text.rich(
-              TextSpan(children: [
-                const TextSpan(text: 'Your share '),
-                TextSpan(
-                  text: '\$${mine.toStringAsFixed(2)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Your share', style: subtleText(context)),
+                Text.rich(
+                  TextSpan(children: [
+                    TextSpan(
+                      text: money(mine),
+                      style: theme.textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    TextSpan(
+                      text: '  of ${money(total)}',
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                  ]),
                 ),
-                TextSpan(
-                  text: '  of \$${total.toStringAsFixed(2)}',
-                  style: TextStyle(color: theme.hintColor),
-                ),
-              ]),
+              ],
             ),
           ),
           if (needs > 0)
             FilterChip(
               avatar: filterOn
                   ? null
-                  : Icon(Icons.filter_list, size: 18, color: Colors.deepOrange.shade400),
+                  : Icon(Icons.filter_list, size: 18, color: colors.warning),
               label: Text('$needs need someone'),
-              labelStyle: TextStyle(color: Colors.deepOrange.shade700),
-              side: BorderSide(color: Colors.deepOrange.shade200),
+              labelStyle:
+                  TextStyle(color: colors.warning, fontWeight: FontWeight.w600),
+              side: BorderSide(color: colors.warning.withValues(alpha: 0.6)),
               selected: filterOn,
-              selectedColor: Colors.deepOrange.shade50,
-              checkmarkColor: Colors.deepOrange.shade700,
+              selectedColor: colors.warning.withValues(alpha: 0.16),
+              checkmarkColor: colors.warning,
               visualDensity: VisualDensity.compact,
-              onSelected: (on) => setState(() => _onlyNeedsSomeone = on),
+              onSelected: (on) => setState(() {
+                _onlyNeedsSomeone = on;
+                _showAddButton = true;
+              }),
             )
           else
             Row(
               children: [
-                Icon(Icons.check_circle, size: 18, color: Colors.green.shade600),
+                Icon(Icons.check_circle, size: 18, color: colors.positive),
                 const SizedBox(width: 4),
-                Text('All claimed', style: theme.textTheme.bodySmall),
+                Text('All claimed',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.positive, fontWeight: FontWeight.w600)),
               ],
             ),
         ],
@@ -359,30 +421,14 @@ class _BasketScreenState extends State<BasketScreen> {
   }
 
   Widget _emptyState(BuildContext context, Basket basket) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.shopping_basket_outlined, size: 56, color: theme.hintColor),
-            const SizedBox(height: 12),
-            Text('No items yet', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              'Add items by hand, scan a receipt, or import one from Costco.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: theme.hintColor),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              icon: const Icon(Icons.add),
-              label: const Text('Add items'),
-              onPressed: () => _showAddMenu(context, basket),
-            ),
-          ],
-        ),
+    return EmptyState(
+      icon: Icons.shopping_basket_outlined,
+      title: 'No items yet',
+      message: 'Scan a receipt, import one from Costco, or add items by hand.',
+      action: FilledButton.icon(
+        icon: const Icon(Icons.add),
+        label: const Text('Add items'),
+        onPressed: () => _showAddMenu(context, basket),
       ),
     );
   }
@@ -391,39 +437,42 @@ class _BasketScreenState extends State<BasketScreen> {
   void _showAddMenu(BuildContext ctx, Basket basket) {
     showModalBottomSheet(
       context: ctx,
-      builder: (_) => SafeArea(
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.add),
-              title: const Text('Add Item Manually'),
-              onTap: () {
-                Navigator.pop(ctx);
-                Navigator.push(
-                  ctx,
-                  MaterialPageRoute(builder: (_) => AddItemScreen(basket: basket)),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Scan Receipt'),
+              leading: const Icon(Icons.document_scanner_outlined),
+              title: const Text('Scan a receipt'),
               subtitle: const Text('Any store, from a photo'),
               onTap: () {
-                Navigator.pop(ctx);
+                Navigator.pop(sheetContext);
                 _scanReceipt(ctx, basket);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.store),
+              leading: const Icon(Icons.storefront_outlined),
               title: const Text('Import from Costco'),
-              subtitle: const Text('From your Costco account'),
+              subtitle: const Text('Straight from your Costco account'),
               onTap: () {
-                Navigator.pop(ctx);
+                Navigator.pop(sheetContext);
                 _importCostco(ctx, basket);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Add an item by hand'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                Navigator.push(
+                  ctx,
+                  MaterialPageRoute(
+                      builder: (_) => AddItemScreen(basket: basket)),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -438,7 +487,8 @@ class _BasketScreenState extends State<BasketScreen> {
     );
     if (receiptId == null || !ctx.mounted) return;
 
-    final ref = FirebaseFirestore.instance.collection('receipts').doc(receiptId);
+    final ref =
+        FirebaseFirestore.instance.collection('receipts').doc(receiptId);
     final data = (await ref.get()).data() ?? {};
     final docs = (await ref.collection('items').get()).docs
       ..sort((a, b) => ((a.data()['index'] ?? 0) as num)
@@ -454,7 +504,9 @@ class _BasketScreenState extends State<BasketScreen> {
         qty: qty < 1 ? 1 : qty,
         total: (m['total'] as num?)?.toDouble() ?? 0,
         taxable: m['taxable'] == true,
-        category: kItemCategories.containsKey(m['category']) ? m['category'] : null,
+        category:
+            kItemCategories.containsKey(m['category']) ? m['category'] : null,
+        discount: (m['discount'] as num?)?.toDouble() ?? 0,
       );
     }).toList();
 
@@ -489,6 +541,7 @@ class _BasketScreenState extends State<BasketScreen> {
               total: i.total,
               taxable: i.taxable,
               code: i.itemNumber,
+              discount: i.discount,
             ))
         .toList();
     await _tidyNames(ctx, lines, store: 'Costco');
@@ -528,10 +581,12 @@ class _BasketScreenState extends State<BasketScreen> {
     try {
       final result = await FirebaseFunctions.instance
           .httpsCallable('cleanItemNames',
-              options: HttpsCallableOptions(timeout: const Duration(seconds: 120)))
+              options:
+                  HttpsCallableOptions(timeout: const Duration(seconds: 120)))
           .call({
         'store': store,
-        'items': lines.map((l) => {'text': l.description, 'code': l.code}).toList(),
+        'items':
+            lines.map((l) => {'text': l.description, 'code': l.code}).toList(),
       });
       final items = (result.data['items'] as List?) ?? const [];
       if (items.length == lines.length) {
@@ -539,7 +594,8 @@ class _BasketScreenState extends State<BasketScreen> {
           final name = (items[i]['name'] ?? '').toString().trim();
           final category = items[i]['category'];
           if (name.isNotEmpty) lines[i].description = name;
-          if (kItemCategories.containsKey(category)) lines[i].category = category;
+          if (kItemCategories.containsKey(category))
+            lines[i].category = category;
         }
       }
     } catch (_) {
@@ -598,8 +654,10 @@ class _BasketScreenState extends State<BasketScreen> {
     }).toList();
 
     try {
-      await _dbService.addItemsToBasket(basket.id, items, receiptTax: result.tax);
-      messenger.showSnackBar(SnackBar(content: Text('Added ${items.length} items')));
+      await _dbService.addItemsToBasket(basket.id, items,
+          receiptTax: result.tax);
+      messenger
+          .showSnackBar(SnackBar(content: Text('Added ${items.length} items')));
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text("Couldn't add items: $e")));
     }
@@ -610,8 +668,8 @@ class _BasketScreenState extends State<BasketScreen> {
     final unclaimed = basket.items.where((i) => i.needsSomeone).toList();
     final badShares = basket.items.where((i) {
       if (i.needsSomeone) return false;
-      final sum = i.userShares.values
-          .fold(0.0, (s, d) => s + ((d is Map ? d['share'] ?? 0 : 0) as num).toDouble());
+      final sum = i.userShares.values.fold(0.0,
+          (s, d) => s + ((d is Map ? d['share'] ?? 0 : 0) as num).toDouble());
       return (sum - 1).abs() > 0.01;
     }).toList();
 
@@ -619,7 +677,8 @@ class _BasketScreenState extends State<BasketScreen> {
     if (basket.items.isEmpty) {
       error = 'Add some items before finalizing.';
     } else if (unclaimed.isNotEmpty) {
-      error = '${unclaimed.length == 1 ? '1 item has' : '${unclaimed.length} items have'} '
+      error =
+          '${unclaimed.length == 1 ? '1 item has' : '${unclaimed.length} items have'} '
           'no one opted in yet: ${_listNames(unclaimed)}.';
     } else if (badShares.isNotEmpty) {
       error = "Shares don't add up to 100% for: ${_listNames(badShares)}.";
@@ -637,11 +696,18 @@ class _BasketScreenState extends State<BasketScreen> {
                 onPressed: () => Navigator.pop(ctx, true),
                 child: const Text('Show them'),
               ),
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('OK')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('OK')),
           ],
         ),
       );
-      if (showThem == true) setState(() => _onlyNeedsSomeone = true);
+      if (showThem == true) {
+        setState(() {
+          _onlyNeedsSomeone = true;
+          _showAddButton = true;
+        });
+      }
       return;
     }
 
@@ -661,8 +727,10 @@ class _BasketScreenState extends State<BasketScreen> {
           children: [
             TextField(
               controller: taxCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Tax', prefixText: '\$'),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration:
+                  const InputDecoration(labelText: 'Tax', prefixText: '\$'),
             ),
             const SizedBox(height: 12),
             if (basket.receiptTax > 0)
@@ -680,8 +748,12 @@ class _BasketScreenState extends State<BasketScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Finalize')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Finalize')),
         ],
       ),
     );
@@ -689,7 +761,8 @@ class _BasketScreenState extends State<BasketScreen> {
 
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await _dbService.finalizeBasket(basket, double.tryParse(taxCtrl.text.trim()) ?? 0);
+      await _dbService.finalizeBasket(
+          basket, double.tryParse(taxCtrl.text.trim()) ?? 0);
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text("Couldn't finalize: $e")));
     }
@@ -703,20 +776,19 @@ class _BasketScreenState extends State<BasketScreen> {
   void _deleteBasket(BuildContext context, Basket basket) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) =>
-          AlertDialog(
-            title: Text("Delete Basket"),
-            content: Text(
-                "Are you sure you want to delete this basket?\nYou won't be able to undo this"),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: Text('Cancel')),
-              TextButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: Text('Delete')),
-            ],
-          ),
+      builder: (context) => AlertDialog(
+        title: Text("Delete Basket"),
+        content: Text(
+            "Are you sure you want to delete this basket?\nYou won't be able to undo this"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text('Delete')),
+        ],
+      ),
     );
     if (confirm == true) await _dbService.deleteBasket(basket.id);
   }

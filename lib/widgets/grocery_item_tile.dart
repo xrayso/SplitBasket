@@ -4,7 +4,9 @@ import '../models/grocery_item.dart';
 import '../screens/edit_item_screen.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../theme.dart';
 import 'colour-utility.dart';
+import 'ui.dart';
 
 /// One row in a basket. Member names come from the basket screen, which loads
 /// them once, so rows never hit the database just to draw themselves.
@@ -39,139 +41,181 @@ class GroceryItemTile extends StatelessWidget {
   String _name(String uid) => names[uid] ?? '…';
 
   /// "Everyone equally", "No one yet", or "Sam 50%, Alex 50%" with manually
-  /// set percentages in the theme's primary colour.
-  Widget _optedInSummary(BuildContext context) {
+  /// set percentages in the theme's primary colour, plus "Taxed".
+  Widget _sharesLine(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = AppColors.of(context);
+    final base = theme.textTheme.bodySmall
+        ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
     final entries = item.userShares.entries
         .where((e) => e.value is Map && ((e.value['share'] ?? 0) as num) > 0)
         .toList();
 
+    final spans = <InlineSpan>[];
     if (entries.isEmpty) {
-      return Text('No one yet', style: TextStyle(color: Colors.deepOrange.shade400));
-    }
-
-    final members = basket.memberIds.toSet();
-    final everyoneEqual = entries.length == members.length &&
-        entries.every((e) =>
-            members.contains(e.key) &&
-            (((e.value['share'] as num).toDouble()) - 1 / members.length).abs() < 1e-6);
-    if (everyoneEqual && members.length > 1) {
-      return Text('Everyone equally', style: TextStyle(color: Colors.green.shade600));
-    }
-
-    final spans = <TextSpan>[];
-    for (final e in entries) {
-      if (spans.isNotEmpty) spans.add(const TextSpan(text: ', '));
-      final percent = (((e.value['share'] as num).toDouble()) * 100).round();
       spans.add(TextSpan(
-        text: '${_name(e.key)} $percent%',
-        style: e.value['isManual'] == true
-            ? TextStyle(color: theme.colorScheme.primary)
-            : null,
+        text: 'No one yet',
+        style: TextStyle(color: colors.warning, fontWeight: FontWeight.w600),
       ));
+    } else {
+      final members = basket.memberIds.toSet();
+      final everyoneEqual = members.length > 1 &&
+          entries.length == members.length &&
+          entries.every((e) =>
+              members.contains(e.key) &&
+              (((e.value['share'] as num).toDouble()) - 1 / members.length)
+                      .abs() <
+                  1e-6);
+      if (everyoneEqual) {
+        spans.add(TextSpan(
+          text: 'Everyone equally',
+          style: TextStyle(color: colors.positive, fontWeight: FontWeight.w500),
+        ));
+      } else {
+        for (final e in entries) {
+          if (spans.isNotEmpty) spans.add(const TextSpan(text: ', '));
+          final percent =
+              (((e.value['share'] as num).toDouble()) * 100).round();
+          spans.add(TextSpan(
+            text: '${_name(e.key)} $percent%',
+            style: e.value['isManual'] == true
+                ? TextStyle(color: theme.colorScheme.primary)
+                : null,
+          ));
+        }
+      }
     }
+    if (item.taxable) spans.add(const TextSpan(text: ' · Taxed'));
+
     return Text.rich(
-      TextSpan(children: spans),
+      TextSpan(style: base, children: spans),
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
     );
   }
 
-  /// Who paid, as a small coloured circle with their initials.
-  Widget _paidByAvatar(BuildContext context) {
-    final fullName = _name(item.paidBy);
-    final initials = fullName
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((p) => p.isNotEmpty)
-        .take(2)
-        .map((p) => p[0])
-        .join()
-        .toUpperCase();
-    final baseColour = colorForName(fullName);
-    return Tooltip(
-      message: 'Paid by $fullName',
-      child: CircleAvatar(
-        radius: 13,
-        backgroundColor: baseColour.withValues(alpha: 0.18),
-        child: Text(
-          initials,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: onColor(baseColour, Theme.of(context).brightness),
-          ),
+  /// The item's category as a small tinted tile (or a selection circle while
+  /// selecting items).
+  Widget _leading(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    if (selectionMode) {
+      return SizedBox(
+        width: 40,
+        height: 40,
+        child: Icon(
+          selected ? Icons.check_circle : Icons.radio_button_unchecked,
+          color: selected ? scheme.primary : scheme.outline,
+          size: 26,
         ),
+      );
+    }
+    final colour = categoryColor(item.category);
+    final dark = theme.brightness == Brightness.dark;
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(
+            colour.withValues(alpha: dark ? 0.24 : 0.13), scheme.surface),
+        borderRadius: BorderRadius.circular(12),
       ),
+      child: Icon(categoryIcon(item.category),
+          size: 22, color: onColor(colour, theme.brightness)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final payer = _name(item.paidBy);
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       color: selected
-          ? Color.alphaBlend(theme.colorScheme.primary.withValues(alpha: 0.10),
-              theme.colorScheme.surface)
+          ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.14),
+              scheme.surfaceContainerLow)
           : null,
-      child: ListTile(
-        dense: true,
-        visualDensity: const VisualDensity(horizontal: 0, vertical: -2),
-        contentPadding: const EdgeInsets.only(left: 12, right: 4),
+      child: InkWell(
         onTap: selectionMode ? onSelectToggle : () => _editItem(context),
         onLongPress: isFinalized ? null : onLongPress,
-        leading: selectionMode
-            ? Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked,
-                color: selected ? theme.colorScheme.primary : null)
-            : Icon(categoryIcon(item.category), color: theme.hintColor),
-        minLeadingWidth: 24,
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
-            ),
-            const SizedBox(width: 8),
-            Text('\$${item.total.toStringAsFixed(2)}',
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-          ],
-        ),
-        subtitle: Row(
-          children: [
-            Expanded(child: _optedInSummary(context)),
-            if (item.taxable)
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: Text('Taxed',
-                    style: theme.textTheme.labelSmall?.copyWith(color: theme.hintColor)),
-              ),
-          ],
-        ),
-        trailing: selectionMode
-            ? null
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _paidByAvatar(context),
-                  if (!isFinalized) ...[
-                    IconButton(
-                      icon: Icon(_isOptedIn
-                          ? Icons.check_box
-                          : Icons.check_box_outline_blank),
-                      color: _isOptedIn ? Colors.green : null,
-                      visualDensity: VisualDensity.compact,
-                      tooltip: _isOptedIn ? 'Opt out' : 'Opt in',
-                      onPressed: _toggleOptIn,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 4, 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _leading(context),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Name gets the full width; the price sits beside it.
+                    Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item.name,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                  fontWeight: FontWeight.w500, height: 1.25),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                money(item.total),
+                                style: theme.textTheme.bodyLarge
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              if (item.quantity > 1)
+                                Text('${item.quantity} × ${money(item.price)}',
+                                    style: subtleText(context)),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.tune),
-                      visualDensity: VisualDensity.compact,
-                      tooltip: 'Set percentage',
-                      onPressed: () => _showShareDialog(context),
+                    Row(
+                      children: [
+                        Expanded(child: _sharesLine(context)),
+                        Tooltip(
+                          message: 'Paid by $payer',
+                          child: PersonAvatar(name: payer, radius: 12),
+                        ),
+                        if (!isFinalized && !selectionMode) ...[
+                          const SizedBox(width: 4),
+                          IconButton(
+                            icon: Icon(_isOptedIn
+                                ? Icons.check_box
+                                : Icons.check_box_outline_blank),
+                            color: _isOptedIn ? scheme.primary : scheme.outline,
+                            visualDensity: VisualDensity.compact,
+                            tooltip: _isOptedIn ? "I'm out" : "I'm in",
+                            onPressed: _toggleOptIn,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.tune, size: 20),
+                            color: scheme.onSurfaceVariant,
+                            visualDensity: VisualDensity.compact,
+                            tooltip: 'Set my share',
+                            onPressed: () => _showShareDialog(context),
+                          ),
+                        ] else
+                          const SizedBox(width: 12, height: 40),
+                      ],
                     ),
                   ],
-                ],
+                ),
               ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -202,14 +246,27 @@ class GroceryItemTile extends StatelessWidget {
     final save = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Your share of ${item.name}'),
+        title: const Text('Your share'),
         content: StatefulBuilder(
           builder: (context, setDialogState) {
             return Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('${(currentShare * 100).toStringAsFixed(0)}% · '
-                    '\$${(item.total * currentShare).toStringAsFixed(2)}'),
+                Text(item.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: subtleText(context)),
+                const SizedBox(height: 16),
+                Text(
+                  '${(currentShare * 100).toStringAsFixed(0)}% · '
+                  '${money(item.total * currentShare)}',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
                 Slider(
                   value: currentShare,
                   min: 0.0,
@@ -302,5 +359,33 @@ IconData categoryIcon(String? category) {
       return Icons.spa_outlined;
     default:
       return Icons.shopping_basket_outlined;
+  }
+}
+
+/// A colour per category, for the item's icon tile.
+Color categoryColor(String? category) {
+  switch (category) {
+    case 'produce':
+      return const Color(0xFF43A047);
+    case 'meat_seafood':
+      return const Color(0xFFE53935);
+    case 'dairy_eggs':
+      return const Color(0xFF1E88E5);
+    case 'bakery':
+      return const Color(0xFFFB8C00);
+    case 'frozen':
+      return const Color(0xFF00ACC1);
+    case 'pantry':
+      return const Color(0xFF8D6E63);
+    case 'snacks':
+      return const Color(0xFF8E24AA);
+    case 'beverages':
+      return const Color(0xFF3949AB);
+    case 'household':
+      return const Color(0xFF00897B);
+    case 'personal_care':
+      return const Color(0xFFD81B60);
+    default:
+      return const Color(0xFF78909C);
   }
 }
