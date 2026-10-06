@@ -80,3 +80,6 @@ flutter-plugins-dependencies
 # Firebase configuration (if public repo)
 ios/Runner/GoogleService-Info.plist
 android/app/google-services.json
+
+# Firebase Hosting deploy cache
+.firebase/

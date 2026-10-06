@@ -34,6 +34,14 @@ class _ChargesDetailScreenState extends State<ChargesDetailScreen> {
     );
   }
 
+  void _clearCharge(Charge charge) async {
+    await _dbService.clearCharge(charge.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Cleared')),
+    );
+  }
+
   void _requestChargeResolution(Charge charge) async {
     await _dbService.requestChargeResolution(charge.id, widget.currentUserId);
     if (!mounted) return;
@@ -94,6 +102,12 @@ class _ChargesDetailScreenState extends State<ChargesDetailScreen> {
     final Widget? trailing;
     if (charge.status == 'resolved') {
       trailing = Icon(Icons.check_circle, color: colors.positive);
+    } else if (isPayer && widget.userName == kDeletedUserName) {
+      // Nobody is left to confirm a payment, so the payer can clear it.
+      trailing = TextButton(
+        onPressed: () => _clearCharge(charge),
+        child: const Text('Clear'),
+      );
     } else if (isPayee) {
       trailing = TextButton(
         onPressed: () => _resolveCharge(charge),

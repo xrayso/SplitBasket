@@ -60,6 +60,30 @@ class _ChargesScreenState extends State<ChargesScreen>
     _showSnack('Marked as paid');
   }
 
+  Future<void> _clearDeletedUser(String otherUserId, double amount) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear this balance?'),
+        content: Text(
+          "This person deleted their account, so they can't confirm payments. "
+          "Clearing removes the ${money(amount)} from your balances. You can't undo it.",
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Clear')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await _dbService.clearChargesWith(_uid, otherUserId);
+      _showSnack('Cleared');
+    } catch (e) {
+      _showSnack("Couldn't clear that: $e");
+    }
+  }
+
   Future<void> _requestResolutionForAllCharges(String otherUserId, String name) async {
     try {
       await _dbService.requestResolutionForAllCharges(_uid, otherUserId);
@@ -151,6 +175,18 @@ class _ChargesScreenState extends State<ChargesScreen>
     final Widget actions;
     if (even) {
       actions = const SizedBox.shrink();
+    } else if (name == kDeletedUserName) {
+      actions = Row(
+        children: [
+          Expanded(
+            child: Text('They deleted their account', style: subtleText(context)),
+          ),
+          FilledButton.tonal(
+            onPressed: () => _clearDeletedUser(charge.otherUserId, amount),
+            child: const Text('Clear'),
+          ),
+        ],
+      );
     } else if (owedToMe) {
       actions = Row(
         mainAxisAlignment: MainAxisAlignment.end,

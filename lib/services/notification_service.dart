@@ -73,6 +73,8 @@ Future<void> initializeNotifications() async {
 
 Future<void> sendNotification(String title, String body, List<String> tokens, [String? channelId]) async{
   channelId ??= "default_channel_id";
+  // People without a token (or who deleted their account) just don't get one.
+  tokens = tokens.where((t) => t.isNotEmpty).toList();
   if (tokens.isEmpty) return;
 
   final HttpsCallable callable =

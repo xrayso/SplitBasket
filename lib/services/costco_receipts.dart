@@ -2,8 +2,8 @@
 // that the "Orders & Purchases" page on costco.ca / costco.com uses.
 //
 // The request runs *inside* the signed-in Costco web page (see
-// CostcoImportScreen), so the user's Costco password and tokens never leave
-// that page — nothing is sent to Firebase.
+// CostcoConnector and ConnectorScreen), so the user's Costco password and
+// tokens never leave that page — nothing is sent to Firebase.
 
 import 'dart:convert';
 
@@ -226,7 +226,7 @@ query receipts($startDate: String!, $endDate: String!) {
 }''';
 
 /// JavaScript run inside the signed-in Costco page. Reports back through the
-/// `CostcoBridge` JavaScript channel as JSON: {status: 'signedOut'} |
+/// `ReceiptBridge` JavaScript channel as JSON: {status: 'signedOut'} |
 /// {status: 'ok', receipts: [...]} | {status: 'error', message: '...'}.
 String costcoFetchReceiptsJs({required int daysBack}) {
   final end = DateTime.now();
@@ -236,7 +236,7 @@ String costcoFetchReceiptsJs({required int daysBack}) {
 
   return '''
 (async () => {
-  const send = (m) => CostcoBridge.postMessage(JSON.stringify(m));
+  const send = (m) => ReceiptBridge.postMessage(JSON.stringify(m));
   const clientID = localStorage.getItem('clientID');
   const idToken = localStorage.getItem('idToken');
   if (!clientID || !idToken) { send({status: 'signedOut'}); return; }

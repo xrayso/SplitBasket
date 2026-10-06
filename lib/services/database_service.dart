@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:split_basket/services/notification_service.dart';
@@ -10,12 +12,20 @@ import '../models/charges.dart';
 import '../models/aggregated_charge.dart';
 import 'split_math.dart';
 
+/// Shown in place of someone who deleted their account. Usernames can't
+/// contain spaces, so no real user can be called this.
+const kDeletedUserName = 'Deleted user';
+
 class DatabaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
 
   // User names rarely change, so look each one up once per app session.
   static final Map<String, Future<String>> _nameCache = {};
+
+  /// Forgets cached names, e.g. on sign-out, so the next person to sign in
+  /// sees current ones (including accounts deleted since).
+  static void forgetNames() => _nameCache.clear();
 
   /// Reads a basket's items, lets [mutate] change them, and writes them back
   /// in one transaction. Items live in a single array on the basket, so a plain
@@ -34,6 +44,23 @@ class DatabaseService {
       mutate(items);
       tx.update(basketRef, {'items': items});
     });
+  }
+
+  /// Starts a basket hosted by [hostId], who is its only member.
+  Future<Basket> createBasket(String name, String hostId) async {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rnd = Random();
+    final basket = Basket(
+      id: Uuid().v4(),
+      name: name,
+      hostId: hostId,
+      memberIds: [hostId],
+      memberTokens: [],
+      invitationCode: String.fromCharCodes(Iterable.generate(
+          6, (_) => chars.codeUnitAt(rnd.nextInt(chars.length)))),
+    );
+    await setBasket(basket);
+    return basket;
   }
 
   // Create or update a basket
@@ -178,10 +205,11 @@ class DatabaseService {
       if (querySnapshot.docs.isNotEmpty) {
         return querySnapshot.docs.first['userName'];
       } else {
-        return 'Unknown User';
+        // Their profile is gone: they deleted their account.
+        return kDeletedUserName;
       }
     } catch (e) {
-      return e.toString();
+      return 'Unknown User';
     }
   }
 
@@ -199,9 +227,11 @@ class DatabaseService {
         .update({'memberIds': memberIds});
   }
 
-  Future<String> getUserTokenById(String id) async{
-    user_dart.User user = await getUserById(id);
-    return user.token;
+  /// Someone's device token for notifications, or '' when they have none
+  /// (including when they've deleted their account).
+  Future<String> getUserTokenById(String id) async {
+    final doc = await _db.collection('users').doc(id).get();
+    return (doc.data()?['token'] as String?) ?? '';
   }
 
   Future<void> sendFriendRequest(String senderId, String receiverId) async {
@@ -590,12 +620,21 @@ class DatabaseService {
         .where('payerId', isEqualTo: payer)
         .get();
     WriteBatch batch = _db.batch();
-    print("$payer payee: $payee");
     for (var doc in snapshot.docs) {
       batch.delete(doc.reference);
     }
     await batch.commit();
   }
+
+  /// Clears every charge between two people without telling anyone. For
+  /// when the other person deleted their account and can't confirm a payment.
+  Future<void> clearChargesWith(String currentUserId, String otherUserId) async {
+    await resolveChargesBetweenUsers(currentUserId, otherUserId);
+    await resolveChargesBetweenUsers(otherUserId, currentUserId);
+  }
+
+  Future<void> clearCharge(String chargeId) =>
+      _db.collection('charges').doc(chargeId).delete();
 
   Future<void> resolveAllCharges(String currentUserId, String otherUserId) async {
 

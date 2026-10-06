@@ -3,21 +3,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
-import 'package:intl/intl.dart';
-import 'package:uuid/uuid.dart';
+import '../connectors/connections.dart';
+import '../connectors/receipt_connector.dart';
 import '../models/basket.dart';
 import '../models/grocery_item.dart';
 import '../services/auth_service.dart';
-import '../services/costco_receipts.dart';
 import '../services/database_service.dart';
+import '../services/receipt_import.dart';
 import '../services/split_math.dart';
 import '../theme.dart';
 import '../widgets/grocery_item_tile.dart';
 import '../widgets/ui.dart';
 import 'add_item_screen.dart';
 import 'basket_members_screen.dart';
-import 'costco_import_screen.dart';
+import 'connector_screen.dart';
 import 'expense_summary_screen.dart';
 import 'main_screen.dart';
 import 'receipt_review_screen.dart';
@@ -232,6 +231,11 @@ class _BasketScreenState extends State<BasketScreen> {
     return AppBar(
       title: Text(basket.name),
       actions: [
+        IconButton(
+          icon: const Icon(Icons.download_outlined),
+          tooltip: 'Import from a store',
+          onPressed: () => _importFromStore(context, basket),
+        ),
         if (isHost && basket.items.isNotEmpty)
           TextButton(
             onPressed: () => _finalizeBasket(context, basket),
@@ -424,11 +428,24 @@ class _BasketScreenState extends State<BasketScreen> {
     return EmptyState(
       icon: Icons.shopping_basket_outlined,
       title: 'No items yet',
-      message: 'Scan a receipt, import one from Costco, or add items by hand.',
-      action: FilledButton.icon(
-        icon: const Icon(Icons.add),
-        label: const Text('Add items'),
-        onPressed: () => _showAddMenu(context, basket),
+      message: 'Scan a receipt, add items by hand, or import a receipt from '
+          'a store you connect.',
+      action: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          FilledButton.icon(
+            icon: const Icon(Icons.add),
+            label: const Text('Add items'),
+            onPressed: () => _showAddMenu(context, basket),
+          ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.download_outlined),
+            label: const Text('Import'),
+            onPressed: () => _importFromStore(context, basket),
+          ),
+        ],
       ),
     );
   }
@@ -449,15 +466,6 @@ class _BasketScreenState extends State<BasketScreen> {
               onTap: () {
                 Navigator.pop(sheetContext);
                 _scanReceipt(ctx, basket);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.storefront_outlined),
-              title: const Text('Import from Costco'),
-              subtitle: const Text('Straight from your Costco account'),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                _importCostco(ctx, basket);
               },
             ),
             ListTile(
@@ -514,7 +522,8 @@ class _BasketScreenState extends State<BasketScreen> {
     final total = (data['total'] as num?)?.toDouble();
     final subtotal = (data['subtotal'] as num?)?.toDouble() ??
         (total != null && total > 0 ? total - tax : null);
-    await _review(
+    final messenger = ScaffoldMessenger.of(ctx);
+    final added = await ReceiptImport.intoBasket(
       ctx,
       basket,
       title: (data['store'] as String?)?.trim().isNotEmpty == true
@@ -524,143 +533,46 @@ class _BasketScreenState extends State<BasketScreen> {
       tax: tax,
       subtotal: subtotal,
     );
+    if (added != null && added > 0) showAddedSnack(messenger, added);
   }
 
-  Future<void> _importCostco(BuildContext ctx, Basket basket) async {
-    final receipt = await Navigator.push<CostcoReceipt>(
-      ctx,
-      MaterialPageRoute(builder: (_) => const CostcoImportScreen()),
-    );
-    if (receipt == null || !ctx.mounted) return;
-
-    final lines = receipt.items
-        .map((i) => ReceiptLine(
-              description: i.description,
-              receiptText: i.description,
-              qty: i.qty,
-              total: i.total,
-              taxable: i.taxable,
-              code: i.itemNumber,
-              discount: i.discount,
-            ))
-        .toList();
-    await _tidyNames(ctx, lines, store: 'Costco');
-    if (!ctx.mounted) return;
-
-    await _review(
-      ctx,
-      basket,
-      title: receipt.date != null
-          ? 'Costco · ${DateFormat('MMM d').format(receipt.date!)}'
-          : 'Costco',
-      lines: lines,
-      tax: receipt.taxes,
-      subtotal: receipt.total > 0 ? receipt.total - receipt.taxes : null,
-    );
-  }
-
-  /// Turns abbreviations like "KS ORG EGGS" into real product names, looking
-  /// items up online when needed, and sorts them into categories. Keeps the
-  /// original names if it fails.
-  Future<void> _tidyNames(BuildContext ctx, List<ReceiptLine> lines,
-      {required String store}) async {
-    if (lines.isEmpty) return;
-    showDialog(
-      context: ctx,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Flexible(child: Text('Looking up products…')),
-          ],
-        ),
-      ),
-    );
-    try {
-      final result = await FirebaseFunctions.instance
-          .httpsCallable('cleanItemNames',
-              options:
-                  HttpsCallableOptions(timeout: const Duration(seconds: 120)))
-          .call({
-        'store': store,
-        'items':
-            lines.map((l) => {'text': l.description, 'code': l.code}).toList(),
-      });
-      final items = (result.data['items'] as List?) ?? const [];
-      if (items.length == lines.length) {
-        for (var i = 0; i < lines.length; i++) {
-          final name = (items[i]['name'] ?? '').toString().trim();
-          final category = items[i]['category'];
-          if (name.isNotEmpty) lines[i].description = name;
-          if (kItemCategories.containsKey(category))
-            lines[i].category = category;
-        }
-      }
-    } catch (_) {
-      // Costco's own names still work; just less readable.
-    } finally {
-      if (ctx.mounted) Navigator.pop(ctx);
-    }
-  }
-
-  /// Opens the full-screen review, then adds the chosen items in one write.
-  Future<void> _review(
-    BuildContext ctx,
-    Basket basket, {
-    required String title,
-    required List<ReceiptLine> lines,
-    double tax = 0,
-    double? subtotal,
-  }) async {
-    final messenger = ScaffoldMessenger.of(ctx);
-    if (lines.isEmpty) {
-      messenger.showSnackBar(const SnackBar(
-          content: Text("Couldn't find any items on that receipt.")));
-      return;
-    }
-    final uid = _authService.currentUser!.uid;
-    final result = await Navigator.push<ReceiptReviewResult>(
+  /* ---------- CONNECTED STORES ---------- */
+  /// Opens a connected store's receipts, with this basket already chosen.
+  Future<void> _importFromStore(BuildContext ctx, Basket basket) async {
+    final connector = receiptConnectors.length == 1
+        ? receiptConnectors.first
+        : await showModalBottomSheet<ReceiptConnector>(
+            context: ctx,
+            showDragHandle: true,
+            builder: (sheet) => SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                    child: Text('Import from',
+                        style: Theme.of(sheet).textTheme.titleLarge),
+                  ),
+                  for (final c in receiptConnectors)
+                    ListTile(
+                      leading: Icon(c.icon),
+                      title: Text(c.name),
+                      subtitle: Text(c.description),
+                      onTap: () => Navigator.pop(sheet, c),
+                    ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          );
+    if (connector == null || !ctx.mounted) return;
+    Navigator.push(
       ctx,
       MaterialPageRoute(
-        builder: (_) => ReceiptReviewScreen(
-          title: title,
-          lines: lines,
-          memberIds: basket.memberIds,
-          names: _names,
-          defaultPayer: uid,
-          tax: tax,
-          receiptSubtotal: subtotal,
-        ),
+        builder: (_) => ConnectorScreen(connector: connector, basket: basket),
       ),
     );
-    if (result == null) return;
-
-    final items = result.lines.map((l) {
-      final qty = l.qty < 1 ? 1 : l.qty;
-      final name = l.description.trim();
-      return GroceryItem(
-        id: Uuid().v4(),
-        name: name.isEmpty ? 'Item' : name,
-        price: l.total / qty,
-        quantity: qty,
-        addedBy: uid,
-        paidBy: result.payerId,
-        userShares: evenShares(l.people),
-        taxable: l.taxable,
-        category: l.category,
-      );
-    }).toList();
-
-    try {
-      await _dbService.addItemsToBasket(basket.id, items,
-          receiptTax: result.tax);
-      messenger
-          .showSnackBar(SnackBar(content: Text('Added ${items.length} items')));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text("Couldn't add items: $e")));
-    }
   }
 
   /* ---------- FINALIZE / DELETE ---------- */

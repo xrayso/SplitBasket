@@ -493,7 +493,9 @@ store name plus the receipt text, or the store's item number. Don't search \
 for items you already know. If you still can't tell exactly what it is, \
 expand only the obvious abbreviations ("ORG SPINACH" -> "Organic Spinach") \
 and keep the rest of the receipt's wording. Never invent a brand, product or \
-size that isn't on the receipt or in your search results.
+size that isn't on the receipt or in your search results. The name is shown \
+as-is in a shopping list, so give only the name: no notes or caveats like \
+"(product unspecified)".
 
 Return exactly ${items.length} items.`,
     input: `Items from a ${store} receipt in Canada:\n${list}`,

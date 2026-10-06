@@ -1,8 +1,4 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
-import '../models/basket.dart';
 import '../services/database_service.dart';
 import '../services/auth_service.dart';
 
@@ -23,27 +19,9 @@ class _CreateBasketScreenState extends State<CreateBasketScreen> {
   void _createBasket() async {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
-      final basketId = Uuid().v4();
-      final invitationCode = _generateInvitationCode();
-      final currentUserId = _authService.currentUser!.uid;
-      final newBasket = Basket(
-        id: basketId,
-        name: _basketName,
-        hostId: currentUserId,
-        memberIds: [currentUserId],
-        memberTokens: [],
-        invitationCode: invitationCode,
-      );
-      await _dbService.setBasket(newBasket);
-      Navigator.pop(context);
+      await _dbService.createBasket(_basketName, _authService.currentUser!.uid);
+      if (mounted) Navigator.pop(context);
     }
-  }
-
-  String _generateInvitationCode(){
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    Random rnd = Random();
-    return String.fromCharCodes(Iterable.generate(
-        6, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
   }
 
   @override

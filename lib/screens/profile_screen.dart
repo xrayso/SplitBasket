@@ -2,9 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
+import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../models/user.dart' as app_user;
 import '../widgets/ui.dart';
+import 'delete_account_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   final DatabaseService _databaseService = DatabaseService();
@@ -87,10 +89,19 @@ class ProfileScreen extends StatelessWidget {
                   side: BorderSide(color: theme.colorScheme.error.withValues(alpha: 0.5)),
                 ),
                 onPressed: () async {
-                  await _auth.signOut();
+                  await AuthService().signOut();
                   if (!context.mounted) return;
                   Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
                 },
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: theme.colorScheme.error),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DeleteAccountScreen()),
+                ),
+                child: const Text('Delete account'),
               ),
             ],
           );

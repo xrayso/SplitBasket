@@ -5,6 +5,7 @@ import 'basket_screen.dart';
 import 'home_screen.dart';
 import 'friends_list_screen.dart';
 import 'charges_screen.dart';
+import 'connections_screen.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 
@@ -118,6 +119,7 @@ class _MainScreenState extends State<MainScreen> {
           HomeScreen(),
           FriendsListScreen(),
           ChargesScreen(),
+          const ConnectionsScreen(),
         ],
       ),
       bottomNavigationBar: StreamBuilder<int>(
@@ -163,6 +165,10 @@ class _MainScreenState extends State<MainScreen> {
                     selectedIcon: withBadge(
                         Icons.account_balance_wallet, pendingChargesCount),
                     label: 'Charges',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.link_rounded),
+                    label: 'Connections',
                   ),
                 ],
               );

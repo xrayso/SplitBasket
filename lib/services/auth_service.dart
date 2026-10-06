@@ -1,9 +1,10 @@
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart';
+import '../connectors/connections.dart';
 import '../services/database_service.dart';
 import '../models/user.dart' as user_dart;
 import 'dart:math';
@@ -87,10 +88,56 @@ class AuthService {
     return firstLetterIndex != -1 ? errorMessage.substring(firstLetterIndex) : errorMessage;
   }
 
-  // Sign out
-  Future<void> signOut() {
-    return _auth.signOut();
+  // Sign out. Also signs out of connected stores: they're tied to whoever
+  // was using the app.
+  Future<void> signOut() async {
+    await Connections.disconnectAll();
+    DatabaseService.forgetNames();
+    await _auth.signOut();
   }
+
+  /// Deletes the signed-in account and its data (the deleteAccount Cloud
+  /// Function). Checks [password] first: the server only deletes accounts
+  /// whose password was entered in the last few minutes. Returns null once
+  /// deleted, or a message saying what went wrong.
+  Future<String?> deleteAccount(String password) async {
+    final user = _auth.currentUser;
+    final email = user?.email;
+    if (user == null || email == null) return 'Sign in again, then try again.';
+    try {
+      await user.reauthenticateWithCredential(
+        EmailAuthProvider.credential(email: email, password: password),
+      );
+      await user.getIdToken(true);
+      await FirebaseFunctions.instance
+          .httpsCallable('deleteAccount',
+              options:
+                  HttpsCallableOptions(timeout: const Duration(seconds: 120)))
+          .call();
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'wrong-password':
+        case 'invalid-credential':
+        case 'invalid-login-credentials':
+          return "That password isn't right.";
+        case 'too-many-requests':
+          return 'Too many tries. Wait a few minutes, then try again.';
+        case 'network-request-failed':
+          return "You're offline. Connect to the internet and try again.";
+        default:
+          return e.message ?? "Couldn't check your password.";
+      }
+    } on FirebaseFunctionsException catch (e) {
+      return e.code == 'unavailable'
+          ? "You're offline. Connect to the internet and try again."
+          : "Couldn't delete your account. Try again in a minute.";
+    }
+    await signOut();
+    return null;
+  }
+
+  Future<void> sendPasswordReset(String email) =>
+      _auth.sendPasswordResetEmail(email: email);
 
   // Get current user
   User? get currentUser => _auth.currentUser;

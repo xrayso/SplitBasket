@@ -13,12 +13,13 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_1_8
+        jvmTarget = JavaVersion.VERSION_17
     }
 
     defaultConfig {
@@ -26,7 +27,7 @@ android {
         applicationId "com.ossipjosh.splitBasket"
 
         minSdk = flutter.minSdkVersion
-        minSdkVersion 23
+        minSdkVersion flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -34,10 +35,16 @@ android {
 
     signingConfigs {
         release {
-            keyAlias 'splitbasket_key'
-            keyPassword 'Spiderman18'
-            storeFile file('../splitbasket-release-key.jks')
-            storePassword 'Spiderman18'
+            // Upload key lives outside the repo; android/key.properties is gitignored.
+            def keyProps = new Properties()
+            def keyPropsFile = rootProject.file('key.properties')
+            if (keyPropsFile.exists()) {
+                keyPropsFile.withInputStream { keyProps.load(it) }
+                keyAlias keyProps['keyAlias']
+                keyPassword keyProps['keyPassword']
+                storeFile file(keyProps['storeFile'])
+                storePassword keyProps['storePassword']
+            }
         }
     }
 
@@ -55,6 +62,7 @@ flutter {
     source = "../.."
 }
 dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
     // Import the BoM for the Firebase platform
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
 

@@ -5,9 +5,11 @@ const OpenAI = require("openai");
 const vision = require("@google-cloud/vision");
 const {CATEGORIES, foldDiscounts, readReceipt, tidyNames} =
     require("./receipt-reader");
+const {deleteUserData} = require("./account");
 
 admin.initializeApp();
 const db = admin.firestore();
+const BUCKET = "splitbasketapp.firebasestorage.app";
 
 // ── Receipts ──────────────────────────────────────────────────────────────
 // The OpenAI key lives in Secret Manager. Set it once with:
@@ -23,7 +25,7 @@ const withOpenAI = functions.runWith({
 exports.processReceipt = withOpenAI
     .region("us-central1")
     .storage
-    .bucket("splitbasketapp.firebasestorage.app")
+    .bucket(BUCKET)
     .object()
     .onFinalize(async (object) => {
       // The app uploads receipts to receipts/{uid}/{file}.
@@ -141,6 +143,38 @@ exports.cleanItemNames = withOpenAI.https.onCall(async (data, context) => {
     })),
   };
 });
+
+
+// ── Accounts ──────────────────────────────────────────────────────────────
+
+// How long ago the caller must have entered their password to delete their
+// account, so a phone left unlocked can't be used to do it.
+const RECENT_SIGN_IN_SECONDS = 5 * 60;
+
+// Deletes the caller's account and personal data (see account.js). The app
+// asks for the password again right before calling this.
+exports.deleteAccount = functions.runWith({timeoutSeconds: 120})
+    .https.onCall(async (data, context) => {
+      if (!context.auth) {
+        throw new functions.https.HttpsError(
+            "unauthenticated", "Request has to be authenticated.",
+        );
+      }
+      const signedInAt = context.auth.token.auth_time || 0;
+      if (Date.now() / 1000 - signedInAt > RECENT_SIGN_IN_SECONDS) {
+        throw new functions.https.HttpsError(
+            "failed-precondition", "requires-recent-login",
+        );
+      }
+      const uid = context.auth.uid;
+      const result = await deleteUserData({
+        db,
+        bucket: admin.storage().bucket(BUCKET),
+        auth: admin.auth(),
+      }, uid);
+      console.log(`Deleted account ${uid}`, result);
+      return {deleted: true};
+    });
 
 
 // Existing Function: getBasketByInvitationCode

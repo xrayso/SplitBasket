@@ -24,6 +24,8 @@ class _EditItemScreenState extends State<EditItemScreen> {
   late String _paidBy;
   late bool _taxable;
   final Map<String, User> _basketUsers = {};
+  // Names of people no longer in the basket, e.g. whoever paid for this.
+  final Map<String, String> _leftNames = {};
 
   @override
 
@@ -39,6 +41,10 @@ class _EditItemScreenState extends State<EditItemScreen> {
   Future<void> getBasketNames() async{
     for (String userId in widget.basket.memberIds){
       _basketUsers[userId] = await _dbService.getUserById(userId);
+    }
+    final payer = widget.item.paidBy;
+    if (payer.isNotEmpty && !widget.basket.memberIds.contains(payer)) {
+      _leftNames[payer] = await _dbService.getUserNameById(payer);
     }
 
     if (mounted) setState(() {});
@@ -150,10 +156,16 @@ class _EditItemScreenState extends State<EditItemScreen> {
             DropdownButtonFormField<String>(
               decoration: const InputDecoration(labelText: 'Paid by'),
               initialValue: widget.item.paidBy,
-              items: widget.basket.memberIds.map((userIds) {
+              items: {
+                ...widget.basket.memberIds,
+                // Whoever paid may have left, or deleted their account.
+                if (widget.item.paidBy.isNotEmpty) widget.item.paidBy,
+              }.map((userIds) {
                 return DropdownMenuItem<String>(
                   value: userIds,
-                  child: Text(_basketUsers[userIds]?.userName ?? '…'),
+                  child: Text(_basketUsers[userIds]?.userName ??
+                      _leftNames[userIds] ??
+                      '…'),
                 );
               }).toList(),
               onChanged: (val) {
