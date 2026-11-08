@@ -6,7 +6,8 @@ import '../theme.dart';
 import '../widgets/ui.dart';
 
 /// Who owes whom for this basket so far, worked out the same way finalizing
-/// will: each item split by its shares, tax split across the taxed items.
+/// will: each item split by its shares, each receipt's tax split across
+/// that trip's taxed items.
 class ExpenseSummaryScreen extends StatelessWidget {
   final Basket basket;
   final Map<String, String> names;
@@ -23,15 +24,16 @@ class ExpenseSummaryScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = AppColors.of(context);
     final items = basket.items;
-    final tax = basket.receiptTax;
+    final tax = totalTax(items, basket.otherTax, basket.tripTax);
     final total = items.fold(0.0, (s, i) => s + i.total);
     final myItems = shareTotalFor(uid, items);
-    final myTax = taxShareFor(uid, items, tax);
+    final myTax = taxShareFor(uid, items, basket.otherTax, basket.tripTax);
     final taxedItems = items.where((i) => i.taxable).length;
+    final byTrip = basket.tripTax.isNotEmpty;
 
     // Net with each other person: positive means they owe you.
     final net = <String, double>{};
-    for (final line in computeCharges(items, tax)) {
+    for (final line in computeCharges(items, basket.otherTax, basket.tripTax)) {
       if (line.payeeId == uid) {
         net[line.payerId] = (net[line.payerId] ?? 0) + line.amount;
       } else if (line.payerId == uid) {
@@ -110,7 +112,12 @@ class ExpenseSummaryScreen extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                   child: Text(
-                    tax > 0
+                    tax > 0 && byTrip
+                        ? 'Includes ${money(tax)} tax from imported receipts. '
+                            "Each receipt's tax is split only across that "
+                            "trip's taxed items. The host can change it when "
+                            'finalizing.'
+                    : tax > 0
                         ? 'Includes ${money(tax)} tax from imported receipts, '
                             'split across the $taxedItems taxed '
                             '${taxedItems == 1 ? 'item' : 'items'}. The host can '

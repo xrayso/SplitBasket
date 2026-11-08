@@ -83,3 +83,4 @@ android/app/google-services.json
 
 # Firebase Hosting deploy cache
 .firebase/
+store/screenshots/

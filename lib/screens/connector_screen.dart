@@ -189,6 +189,10 @@ class _ConnectorScreenState extends State<ConnectorScreen> {
       tax: receipt.tax,
       subtotal: receipt.subtotal,
       tidyNamesFor: receipt.store,
+      tripId: '${_connector.id}:${receipt.id}',
+      store: receipt.store,
+      place: receipt.place,
+      date: receipt.date,
     );
     if (added == null || added == 0) return;
 

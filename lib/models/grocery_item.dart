@@ -1,5 +1,46 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Which shopping trip (receipt) an item came from, so a basket can group
+/// items by trip and tell two orange juices on different days apart.
+class Trip {
+  /// The receipt's own id, so items from the same receipt group together.
+  final String id;
+  final String store;
+
+  /// Which location, e.g. the warehouse. Empty when unknown.
+  final String place;
+
+  /// The day of the trip, as yyyy-MM-dd so it never shifts with time zones.
+  final String date;
+
+  const Trip({
+    required this.id,
+    required this.store,
+    this.place = '',
+    required this.date,
+  });
+
+  static String dateKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+
+  DateTime? get day => DateTime.tryParse(date);
+
+  Map<String, dynamic> toMap() =>
+      {'id': id, 'store': store, 'place': place, 'date': date};
+
+  static Trip? fromMap(Object? map) {
+    if (map is! Map || (map['id'] ?? '').toString().isEmpty) return null;
+    return Trip(
+      id: map['id'].toString(),
+      store: (map['store'] ?? '').toString(),
+      place: (map['place'] ?? '').toString(),
+      date: (map['date'] ?? '').toString(),
+    );
+  }
+}
+
 class GroceryItem {
   final String id;
   final String name;
@@ -13,6 +54,8 @@ class GroceryItem {
   final bool taxable;
   // One of kItemCategories, or null when unknown.
   final String? category;
+  // The receipt this came from; null for items added by hand.
+  final Trip? trip;
 
   GroceryItem({
     required this.id,
@@ -24,6 +67,7 @@ class GroceryItem {
     required this.userShares,
     this.taxable = false,
     this.category,
+    this.trip,
   });
 
   // Convert a GroceryItem into a Map for Firestore
@@ -38,6 +82,7 @@ class GroceryItem {
       'paidBy': paidBy,
       'taxable': taxable,
       if (category != null) 'category': category,
+      if (trip != null) 'trip': trip!.toMap(),
     };
   }
 
@@ -54,6 +99,7 @@ class GroceryItem {
       ),
       taxable: map['taxable'] == true,
       category: map['category'] as String?,
+      trip: Trip.fromMap(map['trip']),
     );
   }
   factory GroceryItem.fromDocument(DocumentSnapshot doc) {
@@ -81,6 +127,7 @@ class GroceryItem {
       userShares: userShares ?? this.userShares,
       taxable: taxable ?? this.taxable,
       category: category ?? this.category,
+      trip: trip,
     );
   }
 

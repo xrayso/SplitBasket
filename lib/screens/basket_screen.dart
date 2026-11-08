@@ -11,8 +11,10 @@ import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../services/receipt_import.dart';
 import '../services/split_math.dart';
+import '../services/trip_groups.dart';
 import '../theme.dart';
 import '../widgets/grocery_item_tile.dart';
+import '../widgets/trip_header.dart';
 import '../widgets/ui.dart';
 import 'add_item_screen.dart';
 import 'basket_members_screen.dart';
@@ -184,25 +186,7 @@ class _BasketScreenState extends State<BasketScreen> {
                         }
                         return false;
                       },
-                      child: ListView.builder(
-                        padding: const EdgeInsets.only(top: 4, bottom: 96),
-                        itemCount: visible.length,
-                        itemBuilder: (_, idx) {
-                          final item = visible[idx];
-                          return GroceryItemTile(
-                            key: ValueKey(item.id),
-                            item: item,
-                            basket: basket,
-                            names: _names,
-                            selectionMode: selecting,
-                            selected: _selected.contains(item.id),
-                            onLongPress: () =>
-                                setState(() => _toggleSelected(item.id)),
-                            onSelectToggle: () =>
-                                setState(() => _toggleSelected(item.id)),
-                          );
-                        },
-                      ),
+                      child: _itemsList(basket, visible, selecting),
                     ),
                   ),
                 ],
@@ -219,6 +203,65 @@ class _BasketScreenState extends State<BasketScreen> {
                 ),
               ),
       ),
+    );
+  }
+
+  /// The items, grouped by shopping trip when any came from a receipt: a
+  /// pinned, colour-coded header per trip with matching stripes on its items.
+  Widget _itemsList(Basket basket, List<GroceryItem> visible, bool selecting) {
+    Widget tile(GroceryItem item, {Color? accent}) => GroceryItemTile(
+          key: ValueKey(item.id),
+          item: item,
+          basket: basket,
+          names: _names,
+          accent: accent,
+          selectionMode: selecting,
+          selected: _selected.contains(item.id),
+          onLongPress: () => setState(() => _toggleSelected(item.id)),
+          onSelectToggle: () => setState(() => _toggleSelected(item.id)),
+        );
+
+    final groups = groupByTrip(visible);
+    if (groups.isEmpty) {
+      return ListView.builder(
+        padding: const EdgeInsets.only(top: 4, bottom: 96),
+        itemCount: visible.length,
+        itemBuilder: (_, idx) => tile(visible[idx]),
+      );
+    }
+
+    // Headers and colours come from the whole basket, so filtering to the
+    // items that need someone never recolours a trip or changes its total.
+    final whole = {
+      for (final g in groupByTrip(basket.items)) g.trip?.id: g,
+    };
+    return CustomScrollView(
+      slivers: [
+        for (final group in groups)
+          SliverMainAxisGroup(
+            slivers: [
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: TripHeaderDelegate(
+                  whole[group.trip?.id] ?? group,
+                  group.items.length,
+                  group.trip == null
+                      ? 0
+                      : basket.tripTax[group.trip!.id] ?? 0,
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.only(top: 6, bottom: 10),
+                sliver: SliverList.builder(
+                  itemCount: group.items.length,
+                  itemBuilder: (_, idx) => tile(group.items[idx],
+                      accent: tripColour(whole[group.trip?.id] ?? group)),
+                ),
+              ),
+            ],
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: 86)),
+      ],
     );
   }
 
@@ -523,15 +566,16 @@ class _BasketScreenState extends State<BasketScreen> {
     final subtotal = (data['subtotal'] as num?)?.toDouble() ??
         (total != null && total > 0 ? total - tax : null);
     final messenger = ScaffoldMessenger.of(ctx);
+    final store = (data['store'] as String?)?.trim() ?? '';
     final added = await ReceiptImport.intoBasket(
       ctx,
       basket,
-      title: (data['store'] as String?)?.trim().isNotEmpty == true
-          ? data['store']
-          : 'Scanned receipt',
+      title: store.isNotEmpty ? store : 'Scanned receipt',
       lines: lines,
       tax: tax,
       subtotal: subtotal,
+      tripId: 'scan:$receiptId',
+      store: store.isNotEmpty ? store : 'Scanned receipt',
     );
     if (added != null && added > 0) showAddedSnack(messenger, added);
   }
@@ -623,58 +667,15 @@ class _BasketScreenState extends State<BasketScreen> {
       return;
     }
 
-    final taxCtrl = TextEditingController(
-      text: basket.receiptTax > 0 ? basket.receiptTax.toStringAsFixed(2) : '',
-    );
-    final taxed = basket.items.where((i) => i.taxable).toList();
-    final taxedTotal = taxed.fold(0.0, (s, i) => s + i.total);
-
-    final confirm = await showDialog<bool>(
+    final tax = await showDialog<_FinalTax>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Finalize Basket'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: taxCtrl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration:
-                  const InputDecoration(labelText: 'Tax', prefixText: '\$'),
-            ),
-            const SizedBox(height: 12),
-            if (basket.receiptTax > 0)
-              const Text('Filled in from imported receipts. Add tax for any '
-                  'items you entered by hand.\n'),
-            Text(
-              taxed.isEmpty
-                  ? 'No items are marked as taxed, so tax is split across everything.'
-                  : 'Tax is split across the ${taxed.length} taxed '
-                      '${taxed.length == 1 ? 'item' : 'items'} '
-                      '(\$${taxedTotal.toStringAsFixed(2)}), so nobody pays tax on '
-                      'untaxed groceries.',
-              style: Theme.of(ctx).textTheme.bodySmall,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Finalize')),
-        ],
-      ),
+      builder: (_) => _FinalizeDialog(basket: basket),
     );
-    if (confirm != true || !context.mounted) return;
+    if (tax == null || !context.mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await _dbService.finalizeBasket(
-          basket, double.tryParse(taxCtrl.text.trim()) ?? 0);
+      await _dbService.finalizeBasket(basket, tax.other, tax.byTrip);
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text("Couldn't finalize: $e")));
     }
@@ -703,5 +704,124 @@ class _BasketScreenState extends State<BasketScreen> {
       ),
     );
     if (confirm == true) await _dbService.deleteBasket(basket.id);
+  }
+}
+
+/// The tax the host settled on: each receipt's, and the rest.
+class _FinalTax {
+  final double other;
+  final Map<String, double> byTrip;
+  const _FinalTax(this.other, this.byTrip);
+}
+
+/// Confirms the tax before finalizing: one field per receipt, filled in from
+/// the receipt, plus one for items added by hand. Each is split only across
+/// its own items, so one store's tax never lands on another's groceries.
+class _FinalizeDialog extends StatefulWidget {
+  final Basket basket;
+  const _FinalizeDialog({required this.basket});
+
+  @override
+  State<_FinalizeDialog> createState() => _FinalizeDialogState();
+}
+
+class _FinalizeDialogState extends State<_FinalizeDialog> {
+  late final List<TripGroup> _groups = groupByTrip(widget.basket.items);
+  late final Map<String, TextEditingController> _tripCtrls = {
+    for (final g in _groups)
+      if (g.trip != null)
+        g.trip!.id: TextEditingController(
+            text: _amount(widget.basket.tripTax[g.trip!.id] ?? 0)),
+  };
+  late final _otherCtrl =
+      TextEditingController(text: _amount(widget.basket.otherTax));
+
+  static String _amount(double v) => v > 0 ? v.toStringAsFixed(2) : '';
+  static double _parse(TextEditingController c) =>
+      double.tryParse(c.text.trim().replaceAll('\$', '')) ?? 0;
+
+  bool get _hasTrips => _tripCtrls.isNotEmpty;
+  bool get _hasHandItems => !_hasTrips || _groups.any((g) => g.trip == null);
+
+  @override
+  void dispose() {
+    for (final c in _tripCtrls.values) {
+      c.dispose();
+    }
+    _otherCtrl.dispose();
+    super.dispose();
+  }
+
+  Widget _field(TextEditingController ctrl, String label, {String? helper}) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: TextField(
+          controller: ctrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: helper,
+            helperMaxLines: 2,
+            prefixText: '\$',
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.basket.items;
+    final taxed = items.where((i) => i.taxable).length;
+    return AlertDialog(
+      title: const Text('Finalize Basket'),
+      scrollable: true,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            _hasTrips
+                ? "Check each receipt's tax. It's split only across that "
+                    "trip's taxed items."
+                : taxed == 0
+                    ? 'No items are marked as taxed, so tax is split across '
+                        'everything.'
+                    : 'Tax is split across the $taxed taxed '
+                        '${taxed == 1 ? 'item' : 'items'}, so nobody pays tax '
+                        'on untaxed groceries.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          for (final g in _groups)
+            if (g.trip != null)
+              _field(
+                _tripCtrls[g.trip!.id]!,
+                '${[g.trip!.store, tripDateLabel(g.trip!)].where((s) => s.isNotEmpty).join(' · ')} tax',
+              ),
+          if (_hasHandItems)
+            _field(
+              _otherCtrl,
+              _hasTrips ? 'Tax on items added by hand' : 'Tax',
+              helper: widget.basket.otherTax > 0 && !_hasTrips
+                  ? 'Filled in from imported receipts.'
+                  : null,
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(
+            context,
+            _FinalTax(
+              _hasHandItems ? _parse(_otherCtrl) : 0,
+              {for (final e in _tripCtrls.entries) e.key: _parse(e.value)},
+            ),
+          ),
+          child: const Text('Finalize'),
+        ),
+      ],
+    );
   }
 }

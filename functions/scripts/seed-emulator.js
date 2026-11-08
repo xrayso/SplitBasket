@@ -69,6 +69,13 @@ const even = (...ids) => Object.fromEntries(
 
   const item = (id, name, price, quantity, paidBy, userShares, extra = {}) =>
     ({id, name, price, quantity, addedBy: josh, paidBy, userShares, ...extra});
+  // Two shopping trips, so the basket shows its items grouped by receipt.
+  const costcoTrip = {id: "costco:seed-1", store: "Costco", place: "Kingston",
+    date: "2026-10-03"};
+  const farmBoyTrip = {id: "scan:seed-2", store: "Farm Boy", place: "",
+    date: "2026-10-09"};
+  const fromTrip = (trip, ...ids) => (i) =>
+    ids.includes(i.id) ? {...i, trip} : i;
 
   await db.collection("baskets").doc("seed-costco").set({
     id: "seed-costco",
@@ -78,7 +85,9 @@ const even = (...ids) => Object.fromEntries(
     memberTokens: [],
     invitationCode: "SEED01",
     invitedUserIds: [],
+    // Each receipt's tax, by trip; receiptTax is their total.
     receiptTax: 4.42,
+    tripTax: {"costco:seed-1": 3.92, "scan:seed-2": 0.5},
     items: [
       item("i1", "Kirkland Signature Organic Eggs, 24 ct", 9.49, 1, josh,
           even(josh, sam, alex), {category: "dairy_eggs"}),
@@ -107,7 +116,9 @@ const even = (...ids) => Object.fromEntries(
           13.99, 1, josh, even(josh, sam, alex), {category: "frozen"}),
       item("i12", "Bagels, 12 count", 7.99, 1, josh, even(sam),
           {category: "bakery"}),
-    ],
+    ].map(fromTrip(costcoTrip, "i1", "i2", "i3", "i4", "i5", "i6", "i7", "i8",
+        "i9"))
+        .map(fromTrip(farmBoyTrip, "i10", "i11")),
   });
 
   await db.collection("baskets").doc("seed-empty").set({

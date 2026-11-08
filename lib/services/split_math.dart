@@ -89,27 +89,57 @@ class ChargeLine {
   bool get isTax => item == null;
 }
 
-/// Works out who owes whom when a basket is finalized.
+/// The sales tax on each item, in the same order as [items].
 ///
-/// [taxTotal] is split across the taxable items in proportion to their cost,
-/// then across each item's shares — so nobody pays tax on untaxed groceries.
-/// If no item is marked taxable (e.g. a basket made with an older version of
-/// the app), tax is spread across every item, as before.
-List<ChargeLine> computeCharges(List<GroceryItem> items, double taxTotal) {
+/// Each receipt's tax ([tripTax], by trip id) is split across that trip's
+/// taxed items in proportion to their cost, so a Costco receipt's tax never
+/// lands on Farm Boy groceries. [otherTax] (typed in by the host, or from
+/// receipts imported before trips existed) goes on the items that didn't come
+/// from a receipt, or on everything when they all did. Within each group,
+/// only items marked taxed are charged, unless none are; then all are, as
+/// baskets made with older versions of the app expect.
+List<double> itemTaxes(
+  List<GroceryItem> items,
+  double otherTax, [
+  Map<String, double> tripTax = const {},
+]) {
+  final taxes = List<double>.filled(items.length, 0);
+  void spread(List<int> group, double amount) {
+    if (amount <= 0 || group.isEmpty) return;
+    final taxed = group.where((i) => items[i].taxable).toList();
+    final base = taxed.isNotEmpty ? taxed : group;
+    final cost = base.fold(0.0, (sum, i) => sum + items[i].total);
+    if (cost <= 0) return;
+    for (final i in base) {
+      taxes[i] += amount * items[i].total / cost;
+    }
+  }
+
+  final all = List<int>.generate(items.length, (i) => i);
+  tripTax.forEach((tripId, amount) =>
+      spread(all.where((i) => items[i].trip?.id == tripId).toList(), amount));
+  final byHand = all.where((i) => items[i].trip == null).toList();
+  spread(byHand.isNotEmpty ? byHand : all, otherTax);
+  return taxes;
+}
+
+/// Works out who owes whom when a basket is finalized. Tax is split as
+/// [itemTaxes] describes, then across each item's shares, so nobody pays tax
+/// on untaxed groceries or on another trip's receipt.
+List<ChargeLine> computeCharges(
+  List<GroceryItem> items,
+  double otherTax, [
+  Map<String, double> tripTax = const {},
+]) {
   final lines = <ChargeLine>[];
   final owed = <String, Map<String, double>>{};
   final taxOwed = <String, Map<String, double>>{};
+  final taxes = itemTaxes(items, otherTax, tripTax);
 
-  final taxableOnly = items.any((i) => i.taxable);
-  final taxBase = items
-      .where((i) => !taxableOnly || i.taxable)
-      .fold(0.0, (sum, i) => sum + i.total);
-
-  for (final item in items) {
+  for (var index = 0; index < items.length; index++) {
+    final item = items[index];
     final cost = item.total;
-    final inTaxBase = !taxableOnly || item.taxable;
-    final itemTax =
-        taxTotal > 0 && taxBase > 0 && inTaxBase ? taxTotal * cost / taxBase : 0.0;
+    final itemTax = taxes[index];
 
     item.userShares.forEach((uid, data) {
       if (uid == item.paidBy || data is! Map) return;
@@ -151,14 +181,26 @@ List<ChargeLine> computeCharges(List<GroceryItem> items, double taxTotal) {
 double shareTotalFor(String uid, List<GroceryItem> items) =>
     items.fold(0.0, (sum, i) => sum + i.total * i.shareOf(uid));
 
-/// [uid]'s part of [taxTotal], split the same way [computeCharges] splits it:
-/// across the taxed items by cost, then by each item's shares.
-double taxShareFor(String uid, List<GroceryItem> items, double taxTotal) {
-  if (taxTotal <= 0) return 0;
-  final taxableOnly = items.any((i) => i.taxable);
-  final taxed = items.where((i) => !taxableOnly || i.taxable);
-  final base = taxed.fold(0.0, (sum, i) => sum + i.total);
-  if (base <= 0) return 0;
-  return taxed.fold(
-      0.0, (sum, i) => sum + taxTotal * i.total / base * i.shareOf(uid));
+/// [uid]'s part of the tax, split the same way [computeCharges] splits it.
+double taxShareFor(
+  String uid,
+  List<GroceryItem> items,
+  double otherTax, [
+  Map<String, double> tripTax = const {},
+]) {
+  final taxes = itemTaxes(items, otherTax, tripTax);
+  var mine = 0.0;
+  for (var i = 0; i < items.length; i++) {
+    mine += taxes[i] * items[i].shareOf(uid);
+  }
+  return mine;
 }
+
+/// All the tax that will actually be charged: a receipt's tax only counts
+/// while some of its items are still in the basket.
+double totalTax(
+  List<GroceryItem> items,
+  double otherTax, [
+  Map<String, double> tripTax = const {},
+]) =>
+    itemTaxes(items, otherTax, tripTax).fold(0.0, (sum, t) => sum + t);

@@ -117,4 +117,68 @@ void main() {
         closeTo(owedBy(computeCharges(items, 4.0), 'sam', tax: true), 1e-9));
     expect(taxShareFor('sam', items, 0), 0);
   });
+
+  group('tax per trip', () {
+    const costco = Trip(id: 'costco:1', store: 'Costco', date: '2026-10-03');
+    const farmBoy = Trip(id: 'scan:2', store: 'Farm Boy', date: '2026-10-09');
+    GroceryItem it(String id, double price,
+            {Trip? trip, bool taxable = true, Map<String, dynamic>? shares}) =>
+        GroceryItem(
+          id: id,
+          name: id,
+          price: price,
+          quantity: 1,
+          addedBy: 'host',
+          paidBy: 'host',
+          userShares: shares ?? {'sam': {'share': 1.0, 'isManual': false}},
+          taxable: taxable,
+          trip: trip,
+        );
+
+    test("a receipt's tax stays on its own trip", () {
+      final items = [
+        it('tv', 100, trip: costco),
+        it('oj', 10, trip: farmBoy),
+      ];
+      final taxes = itemTaxes(items, 0, {'costco:1': 13, 'scan:2': 1.3});
+      expect(taxes[0], closeTo(13, 1e-9));
+      expect(taxes[1], closeTo(1.3, 1e-9));
+    });
+
+    test('within a trip, only taxed items pay its tax', () {
+      final items = [
+        it('soap', 10, trip: costco),
+        it('eggs', 10, trip: costco, taxable: false),
+        it('oj', 10, trip: farmBoy, taxable: false),
+      ];
+      final taxes = itemTaxes(items, 0, {'costco:1': 1.3});
+      expect(taxes, [closeTo(1.3, 1e-9), 0, 0]);
+    });
+
+    test('tax typed in by the host goes on items added by hand', () {
+      final items = [it('tv', 100, trip: costco), it('gum', 2)];
+      final taxes = itemTaxes(items, 0.26, {'costco:1': 13});
+      expect(taxes[0], closeTo(13, 1e-9));
+      expect(taxes[1], closeTo(0.26, 1e-9));
+    });
+
+    test("a deleted trip's tax isn't charged", () {
+      final items = [it('oj', 10, trip: farmBoy)];
+      expect(totalTax(items, 0, {'costco:1': 13, 'scan:2': 1.3}),
+          closeTo(1.3, 1e-9));
+    });
+
+    test('charges and the summary agree', () {
+      final items = [
+        it('tv', 100, trip: costco),
+        it('oj', 10, trip: farmBoy),
+      ];
+      const trips = {'costco:1': 13.0, 'scan:2': 1.3};
+      final lines = computeCharges(items, 0, trips);
+      final tax = lines.where((l) => l.isTax).fold(0.0, (s, l) => s + l.amount);
+      expect(tax, closeTo(14.3, 1e-9));
+      expect(taxShareFor('sam', items, 0, trips), closeTo(14.3, 1e-9));
+    });
+  });
 }
+

@@ -15,7 +15,9 @@ class ReceiptImport {
   ReceiptImport._();
 
   /// Lets the user review [lines], then adds the ones they keep to [basket]
-  /// in one write. With [tidyNamesFor] (the store's name), receipt
+  /// in one write, each stamped with the trip ([tripId] is the receipt's own
+  /// id, [store] and [place] say where, [date] when) so the basket can group
+  /// them. With [tidyNamesFor] (the store's name), receipt
   /// abbreviations are first turned into real product names. Returns how
   /// many items were added: 0 when cancelled, and null when adding failed
   /// (after telling the user).
@@ -27,6 +29,10 @@ class ReceiptImport {
     double tax = 0,
     double? subtotal,
     String? tidyNamesFor,
+    required String tripId,
+    required String store,
+    String place = '',
+    DateTime? date,
   }) async {
     final messenger = ScaffoldMessenger.of(context);
     if (lines.isEmpty) {
@@ -53,12 +59,20 @@ class ReceiptImport {
             defaultPayer: uid,
             tax: tax,
             receiptSubtotal: subtotal,
+            date: date,
           ),
         ),
       ),
     );
     if (result == null) return 0;
 
+    // Every item remembers its trip, so the basket can group them.
+    final trip = Trip(
+      id: tripId,
+      store: store,
+      place: place,
+      date: Trip.dateKey(result.date),
+    );
     final items = result.lines.map((l) {
       final qty = l.qty < 1 ? 1 : l.qty;
       final name = l.description.trim();
@@ -72,11 +86,13 @@ class ReceiptImport {
         userShares: evenShares(l.people),
         taxable: l.taxable,
         category: l.category,
+        trip: trip,
       );
     }).toList();
 
     try {
-      await db.addItemsToBasket(basket.id, items, receiptTax: result.tax);
+      await db.addItemsToBasket(basket.id, items,
+          receiptTax: result.tax, tripId: tripId);
       return items.length;
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text("Couldn't add items: $e")));

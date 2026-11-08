@@ -48,7 +48,8 @@ class _ChargesScreenState extends State<ChargesScreen>
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('Mark ${money(amount)} as paid?'),
-        content: Text("This clears everything $name owes you. You can't undo it."),
+        content: Text("You're settling up with $name: this clears every charge "
+            "between you, including anything you owe them. You can't undo it."),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Mark as paid')),
@@ -378,7 +379,7 @@ class _ChargesScreenState extends State<ChargesScreen>
   }
 
   Future<void> _acceptAllRequests(AggregatedResolutionRequest request) async {
-    await _dbService.resolveCharges(_uid, request.requestedBy);
+    await _dbService.confirmPayment(_uid, request.requestedBy);
     _showSnack('Confirmed and cleared');
   }
 

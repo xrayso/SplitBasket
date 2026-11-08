@@ -10,6 +10,7 @@ import '../models/basket.dart';
 import '../models/grocery_item.dart';
 import '../models/charges.dart';
 import '../models/aggregated_charge.dart';
+import 'settle_up.dart';
 import 'split_math.dart';
 
 /// Shown in place of someone who deleted their account. Usernames can't
@@ -141,15 +142,20 @@ class DatabaseService {
   }
 
   /// Adds a whole receipt's items in one write, and adds the receipt's tax to
-  /// the basket so finalizing can fill it in.
+  /// the basket, under its trip, so finalizing can fill it in and split it
+  /// across that trip's items only.
   Future<void> addItemsToBasket(
     String basketId,
     List<GroceryItem> items, {
     double receiptTax = 0,
+    String? tripId,
   }) {
-    return _db.collection('baskets').doc(basketId).update({
+    return _db.collection('baskets').doc(basketId).update(<Object, Object?>{
       'items': FieldValue.arrayUnion(items.map((i) => i.toMap()).toList()),
       if (receiptTax > 0) 'receiptTax': FieldValue.increment(receiptTax),
+      // A FieldPath, since trip ids contain colons.
+      if (receiptTax > 0 && tripId != null)
+        FieldPath(['tripTax', tripId]): FieldValue.increment(receiptTax),
     });
   }
 
@@ -344,11 +350,12 @@ class DatabaseService {
     return cost;
   }
 
-  /// Turns the basket into charges and deletes it. [taxTotal] is the sales tax
-  /// in dollars, split across taxable items (see computeCharges).
-  Future<void> finalizeBasket(Basket basket, double taxTotal) async {
+  /// Turns the basket into charges and deletes it. [tripTax] is each
+  /// receipt's tax and [otherTax] the rest, in dollars (see itemTaxes).
+  Future<void> finalizeBasket(Basket basket, double otherTax,
+      [Map<String, double> tripTax = const {}]) async {
     final now = DateTime.now();
-    final charges = computeCharges(basket.items, taxTotal).map((line) => Charge(
+    final charges = computeCharges(basket.items, otherTax, tripTax).map((line) => Charge(
           id: Uuid().v4(),
           payerId: line.payerId,
           payeeId: line.payeeId,
@@ -436,36 +443,9 @@ class DatabaseService {
         snapshot.docs.map((doc) => Charge.fromMap(doc.data())).toList());
   }
 
-  Stream<List<AggregatedCharge>> getUniqueCharges(String userId) {
-    return getCharges(userId).map((charges) {
-      Map<String, double> netAmounts = {};
-      Map<String, bool> allChargesRequested = {};
-
-      for (var charge in charges) {
-        String otherUserId =
-        charge.payerId == userId ? charge.payeeId : charge.payerId;
-        double amount = charge.amount;
-
-        if (charge.payerId == userId) {
-          netAmounts[otherUserId] = (netAmounts[otherUserId] ?? 0) + amount;
-          allChargesRequested[otherUserId] =
-              charge.status == 'requested' && (allChargesRequested[otherUserId] ?? true);
-        } else if (charge.payeeId == userId) {
-          netAmounts[otherUserId] = (netAmounts[otherUserId] ?? 0) - amount;
-          allChargesRequested[otherUserId] =
-              charge.status == 'requested' && (allChargesRequested[otherUserId] ?? true);
-        }
-      }
-
-      return netAmounts.entries.map((entry) {
-        return AggregatedCharge(
-          otherUserId: entry.key,
-          netAmount: entry.value,
-          requested: allChargesRequested[entry.key] ?? false,
-        );
-      }).toList();
-    });
-  }
+  /// One net balance per person (see netBalances).
+  Stream<List<AggregatedCharge>> getUniqueCharges(String userId) =>
+      getCharges(userId).map((charges) => netBalances(charges, userId));
 
   /// Sets one user's share of an item. A manual share of 0 opts them out;
   /// isManual: false opts them in to split whatever's left equally.
@@ -594,23 +574,16 @@ class DatabaseService {
   }
 
 
-  Future<void> resolveCharges(String payeeId, String payerId) async{
-      QuerySnapshot snapshot = await _db
-          .collection('charges')
-          .where('payeeId', isEqualTo: payeeId)
-          .where('payerId', isEqualTo: payerId)
-          .get();
-      WriteBatch batch = _db.batch();
-      for (var doc in snapshot.docs) {
-          batch.delete(doc.reference);
-      }
-      await batch.commit();
+  /// [payeeId] confirms [payerId] paid them back. Clears every charge
+  /// between the two, both ways, since what was paid was the difference.
+  Future<void> confirmPayment(String payeeId, String payerId) async {
+    await clearChargesWith(payeeId, payerId);
 
-      String title = "Charges resolved!";
-      String name = await getUserNameById(payeeId);
-      String body = "$name resolved your charges!";
-      String token = await getUserTokenById(payerId);
-      sendNotification(title, body, [token]);
+    String title = "Payment confirmed!";
+    String name = await getUserNameById(payeeId);
+    String body = "$name confirmed you're all square.";
+    String token = await getUserTokenById(payerId);
+    sendNotification(title, body, [token]);
   }
 
   Future<void> resolveChargesBetweenUsers(String payer, String payee) async{
@@ -672,51 +645,14 @@ class DatabaseService {
     String token = await getUserTokenById(otherUserId);
     sendNotification(title, body, [token]);
   }
-  Stream<List<AggregatedResolutionRequest>> getUniquePendingResolutionRequests(String userId){
-    // We look for charges where:
-    //   - payeeId = userId
-    //   - status = 'requested'
-    // Then we group them by the 'requestedBy' field and sum the amounts.
-    return _db
-        .collection('charges')
-        .where('payeeId', isEqualTo: userId)
-        .where('status', isEqualTo: 'requested')
-        .snapshots()
-        .map((snapshot) {
-      // Convert each document into a Charge object
-      final charges = snapshot.docs
-          .map((doc) => Charge.fromMap(doc.data()))
-          .toList();
+  /// People who say they've paid you back, with the net they settled.
+  Stream<List<AggregatedResolutionRequest>> getUniquePendingResolutionRequests(
+          String userId) =>
+      getCharges(userId).map((charges) => paymentClaims(charges, userId));
 
-      // Aggregate by requestedBy
-      Map<String, AggregatedResolutionRequest> aggregatedMap = {};
-
-      for (var charge in charges) {
-        final requester = charge.requestedBy;
-        if (requester.isEmpty) continue; // skip if somehow blank
-        if (aggregatedMap.containsKey(requester)){
-          aggregatedMap[requester]?.totalAmountRequested += charge.amount;
-        }else{
-          aggregatedMap[requester] = AggregatedResolutionRequest(requestedBy: requester, totalAmountRequested: charge.amount, chargeIds: [charge.id]);
-        }
-      }
-
-      // Convert the map into a list of AggregatedResolutionRequest objects
-      return aggregatedMap.entries.map((entry) {
-        return entry.value;
-      }).toList();
-    });
-  }
-
-
-  Stream<int> getPendingRequestCount(String userId) {
-    return _db
-        .collection('charges')
-        .where('payeeId', isEqualTo: userId)
-        .where('status', isEqualTo: 'requested')
-        .snapshots()
-        .map((snapshot) => snapshot.docs.length);
-  }
+  /// How many people are waiting for you to confirm they paid you.
+  Stream<int> getPendingRequestCount(String userId) =>
+      getUniquePendingResolutionRequests(userId).map((c) => c.length);
 
   Stream<List<Charge>> getPendingResolutionRequests(String userId) {
     return _db

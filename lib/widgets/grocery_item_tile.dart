@@ -16,6 +16,10 @@ class GroceryItemTile extends StatelessWidget {
   final Map<String, String> names;
   final bool isFinalized;
 
+  /// The colour of the trip this item belongs to, drawn as a stripe down the
+  /// left edge. Null when the basket isn't grouped into trips.
+  final Color? accent;
+
   // Multi-select: long-press a row to start, then tap rows to add/remove them.
   final bool selectionMode;
   final bool selected;
@@ -28,6 +32,7 @@ class GroceryItemTile extends StatelessWidget {
     required this.basket,
     required this.names,
     this.isFinalized = false,
+    this.accent,
     this.selectionMode = false,
     this.selected = false,
     this.onLongPress,
@@ -135,11 +140,13 @@ class GroceryItemTile extends StatelessWidget {
           ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.14),
               scheme.surfaceContainerLow)
           : null,
-      child: InkWell(
+      child: Stack(
+        children: [
+          InkWell(
         onTap: selectionMode ? onSelectToggle : () => _editItem(context),
         onLongPress: isFinalized ? null : onLongPress,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 4, 4),
+          padding: EdgeInsets.fromLTRB(accent == null ? 12 : 16, 12, 4, 4),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -216,6 +223,16 @@ class GroceryItemTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+          if (accent != null)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 6,
+              child: IgnorePointer(child: ColoredBox(color: accent!)),
+            ),
+        ],
       ),
     );
   }

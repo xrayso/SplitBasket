@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../widgets/colour-utility.dart';
 import '../widgets/grocery_item_tile.dart' show categoryColor, categoryIcon;
@@ -36,8 +37,10 @@ class ReceiptReviewResult {
   final List<ReceiptLine> lines; // only the ones to add
   final String payerId;
   final double tax;
+  // The day of the trip, as confirmed on the review screen.
+  final DateTime date;
 
-  ReceiptReviewResult(this.lines, this.payerId, this.tax);
+  ReceiptReviewResult(this.lines, this.payerId, this.tax, this.date);
 }
 
 /// Full-screen review of a receipt: untick lines to skip, fix names and
@@ -53,6 +56,9 @@ class ReceiptReviewScreen extends StatefulWidget {
   // What the receipt says the items cost before tax, if known. Used to warn
   // when lines were missed or misread.
   final double? receiptSubtotal;
+  // The day of the trip, when the receipt says; otherwise today. Can be changed
+  // here, since it's what tells this trip's items apart from other trips'.
+  final DateTime? date;
 
   const ReceiptReviewScreen({
     super.key,
@@ -63,6 +69,7 @@ class ReceiptReviewScreen extends StatefulWidget {
     required this.defaultPayer,
     this.tax = 0,
     this.receiptSubtotal,
+    this.date,
   });
 
   @override
@@ -71,6 +78,7 @@ class ReceiptReviewScreen extends StatefulWidget {
 
 class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
   late String _payer = widget.defaultPayer;
+  late DateTime _date = widget.date ?? DateTime.now();
   late final TextEditingController _taxCtrl = TextEditingController(
     text: widget.tax > 0 ? widget.tax.toStringAsFixed(2) : '',
   );
@@ -96,6 +104,18 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
   String _firstName(String uid) {
     final name = widget.names[uid] ?? '…';
     return name.trim().split(RegExp(r'\s+')).first;
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date.isAfter(now) ? now : _date,
+      firstDate: DateTime(now.year - 2),
+      lastDate: now,
+      helpText: 'Day of the shopping trip',
+    );
+    if (picked != null) setState(() => _date = picked);
   }
 
   void _setEveryone(Set<String> people) {
@@ -151,6 +171,17 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ActionChip(
+                avatar: const Icon(Icons.event_outlined, size: 18),
+                label: Text('Trip day: ${DateFormat('EEE, MMM d, y').format(_date)}'),
+                onPressed: _pickDate,
+              ),
             ),
           ),
           Padding(
@@ -213,6 +244,7 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                         included,
                         _payer,
                         double.tryParse(_taxCtrl.text.trim()) ?? 0,
+                        _date,
                       ),
                     ),
             child: Text('Add ${included.length} items'),

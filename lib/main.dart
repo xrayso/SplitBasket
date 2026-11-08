@@ -34,10 +34,13 @@ void main() async {
     FirebaseFunctions.instance.useFunctionsEmulator('localhost', 5001);
   }
 
-  await initializeNotifications();
-  await setupNotificationChannels();
-
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  // Emulator builds can't get push notifications, so they skip the
+  // permission prompt, which would otherwise hold up every automated run.
+  if (!_useEmulators) {
+    await initializeNotifications();
+    await setupNotificationChannels();
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  }
 
   // Check if onboarding has been seen
   SharedPreferences prefs = await SharedPreferences.getInstance();

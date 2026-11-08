@@ -41,6 +41,8 @@ class _MainScreenState extends State<MainScreen> {
 
 
   void _initializeFirebaseMessaging() async{
+    // Emulator builds can't get push notifications (see main.dart).
+    if (const bool.fromEnvironment('USE_EMULATORS')) return;
     FirebaseMessaging messaging = FirebaseMessaging.instance;
     messaging.requestPermission();
 
@@ -63,10 +65,17 @@ class _MainScreenState extends State<MainScreen> {
         );
       }
     });
-    String memberToken = "";
-
-    memberToken = await FirebaseMessaging.instance.getToken() ?? "";
-    _dbService.setToken(_authService.currentUser!.uid, memberToken);
+    // iOS hands out the push token a moment after launch (and never in the
+    // simulator); asking before then throws. Save it whenever it arrives.
+    final uid = _authService.currentUser!.uid;
+    FirebaseMessaging.instance.onTokenRefresh
+        .listen((token) => _dbService.setToken(uid, token));
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null && token.isNotEmpty) _dbService.setToken(uid, token);
+    } catch (e) {
+      debugPrint('No push token yet: $e');
+    }
   }
 
   // Show a quick snackbar in the UI
